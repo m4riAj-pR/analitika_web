@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import pantalla from '../assets/pantalla_ejemplo.png'
+import logo from '../assets/icon.png'
 import './Login.css'
 
 export default function Login({ onLogin }) {
@@ -29,13 +30,7 @@ export default function Login({ onLogin }) {
       {/* ── NAVBAR ── */}
       <nav className="login-nav">
         <div className="login-logo">
-          {/* Sustituir por <img src={logo} alt="Analitika" /> cuando tengas logo.png */}
-          <svg className="logo-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="20" cy="20" r="20" fill="#7c3aed" opacity=".15" />
-            <path d="M20 8 a12 12 0 0 1 0 24" stroke="#7c3aed" strokeWidth="3" fill="none" />
-            <circle cx="20" cy="20" r="5" fill="#7c3aed" />
-          </svg>
-          <span className="logo-text">Analitika</span>
+          <img src={logo} alt="Analitika" className="logo-icon" />
         </div>
         <div className="login-nav-actions">
           <button className="btn-register-nav" onClick={() => {}}>Registrate</button>
@@ -89,11 +84,8 @@ export default function Login({ onLogin }) {
 
           {/* ── PHONE MOCKUP ── */}
           <div className="deco-phone anim-phone">
-            <div className="phone-frame">
-              <div className="phone-notch"></div>
-              <div className="phone-screen">
-                <img src={pantalla} alt="Analitika App Preview" className="phone-screen-img" />
-              </div>
+            <div className="phone-screen">
+              <img src={pantalla} alt="Analitika App Preview" className="phone-screen-img" />
             </div>
           </div>
 
@@ -102,7 +94,7 @@ export default function Login({ onLogin }) {
         {/* RIGHT — login form */}
         <div className="login-form-section">
           <div className="login-card">
-            <h1 className="login-title">Iniciar sesión</h1>
+            <h1 className="login-title login-title--center">Iniciar sesión</h1>
 
             <form onSubmit={handleSubmit} className="login-form" noValidate>
               <div className="form-field">
