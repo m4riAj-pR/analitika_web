@@ -241,6 +241,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+    delete: (id) =>
+      apiFetch(`/analitika/persons/${id}`, {
+        method: 'DELETE',
+      }),
   },
 };
 

@@ -428,8 +428,12 @@ function ConexionesView() {
         <div style={{
           width: 48, height: 48, borderRadius: 'var(--radius-md)',
           background: 'var(--color-primary-bg)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', fontSize: 24
-        }}>🔌</div>
+          alignItems: 'center', justifyContent: 'center', color: 'var(--color-primary)'
+        }}>
+          <div style={{ width: 24, height: 24 }}>
+            <IconConnect />
+          </div>
+        </div>
         <div>
           <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Conexiones de Meta Ads</h2>
           <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>Vista agregada por empresa</p>

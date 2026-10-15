@@ -121,13 +121,13 @@ export default function NotificationsDropdown({ isOpen, onClose, onUnreadChange 
   const renderIcon = (type) => {
     switch (type) {
       case 'success':
-        return <span className="notif-type-icon notif-icon-success">✓</span>
+        return <span className="notif-type-icon notif-icon-success">OK</span>
       case 'warn':
         return <span className="notif-type-icon notif-icon-warn">!</span>
       case 'kpi':
-        return <span className="notif-type-icon notif-icon-kpi">📈</span>
+        return <span className="notif-type-icon notif-icon-kpi">%</span>
       default:
-        return <span className="notif-type-icon notif-icon-info">ℹ</span>
+        return <span className="notif-type-icon notif-icon-info">i</span>
     }
   }
 
@@ -179,8 +179,7 @@ export default function NotificationsDropdown({ isOpen, onClose, onUnreadChange 
       <div className="notif-body">
         {displayedList.length === 0 ? (
           <div className="notif-empty-state">
-            <span style={{ fontSize: '2rem', display: 'block', marginBottom: 6 }}>🔔</span>
-            <p style={{ fontWeight: 600, color: 'var(--color-text)' }}>No hay notificaciones</p>
+            <p style={{ fontWeight: 600, color: 'var(--color-text)', marginTop: 8 }}>No hay notificaciones</p>
             <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
               {filter === 'unread' ? 'No tienes notificaciones pendientes' : 'Te avisaremos cuando haya actividad importante'}
             </p>

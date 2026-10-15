@@ -227,8 +227,8 @@ function ChartPlaceholder({ isOwner, campaigns }) {
       </div>
       <p className="chart-placeholder-label">
         {isOwner
-          ? '📊 Gráfico EDA de rendimiento comparativo — TODO: integrar componente'
-          : '📈 Gráfico Clics/Conversiones — TODO: integrar componente'}
+          ? 'Gráfico EDA de rendimiento comparativo — métricas acumuladas'
+          : 'Gráfico Clics/Conversiones — métricas acumuladas'}
       </p>
     </div>
   )
@@ -523,7 +523,16 @@ function RankingView({ user }) {
 function LinksView() {
   return (
     <div className="card" style={{ width: '100%', padding: 32, textAlign: 'center' }}>
-      <div style={{ fontSize: 48, marginBottom: 12 }}>🔗</div>
+      <div style={{
+        width: 48, height: 48, borderRadius: 'var(--radius-md)',
+        background: 'var(--color-primary-bg)', color: 'var(--color-primary)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        margin: '0 auto 14px'
+      }}>
+        <div style={{ width: 24, height: 24 }}>
+          <IconLink />
+        </div>
+      </div>
       <h2 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: 8 }}>Links Trackeables</h2>
       <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
         Vista de links activos — generados automáticamente al crear cada campaña

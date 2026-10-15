@@ -4,12 +4,12 @@ import { api } from '../services/api'
 import { IconCampaign, IconLink, IconShield, IconConnect } from './DashboardShell'
 
 const CHANNELS = [
-  { id: 'meta_ads', name: 'Meta Ads (Facebook & Instagram)', icon: '📱', desc: 'Anuncios en feed, stories y reels de Meta' },
-  { id: 'google_ads', name: 'Google Ads', icon: '🔍', desc: 'Búsqueda, Display y YouTube Ads' },
-  { id: 'tiktok_ads', name: 'TikTok Ads', icon: '🎵', desc: 'Pauta en video de formato vertical' },
-  { id: 'whatsapp', name: 'WhatsApp Business', icon: '💬', desc: 'Enlaces directos a chat y mensajería' },
-  { id: 'email', name: 'Email Marketing', icon: '✉️', desc: 'Boletines y secuencias de correo' },
-  { id: 'organic', name: 'Orgánico / Social Media', icon: '🌐', desc: 'Tráfico orgánico en redes y web' },
+  { id: 'meta_ads', name: 'Meta Ads (Facebook & Instagram)', tag: 'META', desc: 'Anuncios en feed, stories y reels de Meta' },
+  { id: 'google_ads', name: 'Google Ads', tag: 'GOOGLE', desc: 'Búsqueda, Display y YouTube Ads' },
+  { id: 'tiktok_ads', name: 'TikTok Ads', tag: 'TIKTOK', desc: 'Pauta en video de formato vertical' },
+  { id: 'whatsapp', name: 'WhatsApp Business', tag: 'WSP', desc: 'Enlaces directos a chat y mensajería' },
+  { id: 'email', name: 'Email Marketing', tag: 'EMAIL', desc: 'Boletines y secuencias de correo' },
+  { id: 'organic', name: 'Orgánico / Social Media', tag: 'WEB', desc: 'Tráfico orgánico en redes y web' },
 ]
 
 const STATUSES = [
@@ -306,7 +306,7 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                🔗 Tracking Link Oficial
+                Tracking Link Oficial
               </span>
               <span className="badge badge-success">Activo para atribución</span>
             </div>
@@ -329,7 +329,7 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
                 onClick={handleCopyLink}
                 style={{ padding: '0 18px', height: 40, flexShrink: 0 }}
               >
-                {copiedLink ? '✓ Copiado' : 'Copiar Link'}
+                {copiedLink ? 'Copiado' : 'Copiar Link'}
               </button>
             </div>
 
@@ -338,7 +338,7 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
               <span><strong>Canal:</strong> {createdResult.channel}</span>
               {createdResult.metaMapped && (
                 <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
-                  ✓ Sincronizado con Meta Ads
+                  Sincronizado con Meta Ads
                 </span>
               )}
             </div>
@@ -385,14 +385,14 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
       {/* Alerta de bloqueo por falta de empresa */}
       {companyError && (
         <div className="alert-message alert-error">
-          ⚠ {companyError}
+          {companyError}
         </div>
       )}
 
       {/* Alerta de errores de validación */}
       {errorMsg && (
         <div className="alert-message alert-error">
-          ⚠ {errorMsg}
+          {errorMsg}
         </div>
       )}
 
@@ -439,7 +439,7 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
                 >
                   {companies.map(co => (
                     <option key={co.id} value={co.id}>
-                      🏢 {co.name || co.nombre || `Empresa ${co.id}`}
+                      {co.name || co.nombre || `Empresa ${co.id}`}
                     </option>
                   ))}
                 </select>
@@ -593,7 +593,18 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
                       transition: 'all var(--transition-fast)'
                     }}
                   >
-                    <span style={{ fontSize: '1.4rem' }}>{ch.icon}</span>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 800,
+                      padding: '4px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isSelected ? 'var(--color-primary)' : 'var(--color-surface-mid)',
+                      color: isSelected ? '#fff' : 'var(--color-text-muted)',
+                      letterSpacing: '0.05em',
+                      alignSelf: 'center',
+                    }}>
+                      {ch.tag}
+                    </span>
                     <div>
                       <span style={{ fontWeight: 700, fontSize: '0.88rem', color: isSelected ? 'var(--color-primary-dark)' : 'var(--color-text)', display: 'block' }}>
                         {ch.name}
@@ -623,7 +634,7 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
               onChange={(e) => setTargetUrl(e.target.value)}
             />
             <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
-              ⚡ El sistema generará automáticamente un enlace acortado y rastreable que redirige hacia esta URL midiendo cada clic.
+              El sistema generará automáticamente un enlace acortado y rastreable que redirige hacia esta URL midiendo cada clic.
             </span>
           </div>
 
@@ -708,7 +719,6 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
                 borderRadius: 'var(--radius-md)', padding: '14px 16px', color: 'var(--color-warn)',
                 fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 10
               }}>
-                <span style={{ fontSize: '1.2rem' }}>🔒</span>
                 <span>
                   <strong>Permiso Restringido (Manager):</strong> Tu rol te permite crear y administrar la campaña con su Tracking Link de medición, pero la vinculación de activos empresariales externos (Meta Ads API) está reservada para usuarios con rol <strong>Owner</strong> o <strong>Super Admin</strong>.
                 </span>

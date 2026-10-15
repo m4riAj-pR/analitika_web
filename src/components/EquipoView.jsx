@@ -11,6 +11,7 @@ const INITIAL_TEAM = [
     phone: '+57 310 987 6543',
     id_role: 2,
     role_name: 'Owner',
+    company_name: 'Analitika SAS',
     status: 'Activo',
     joined_at: '12 Ene 2026',
   },
@@ -22,6 +23,7 @@ const INITIAL_TEAM = [
     phone: '+57 315 444 8921',
     id_role: 3,
     role_name: 'Manager',
+    company_name: 'Analitika SAS',
     status: 'Activo',
     joined_at: '20 Feb 2026',
   },
@@ -33,19 +35,21 @@ const INITIAL_TEAM = [
     phone: '+57 301 777 3311',
     id_role: 3,
     role_name: 'Manager',
+    company_name: 'Analitika SAS',
     status: 'Activo',
     joined_at: '05 Mar 2026',
   },
 ]
 
 export default function EquipoView({ user }) {
-  const isOwner = user?.id_role === 2
+  const isOwner = user?.id_role === 2 || user?.id_role === 1
   const [team, setTeam] = useState(INITIAL_TEAM)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [roleFilter, setRoleFilter] = useState('all') // 'all' | '2' | '3'
+  const [roleFilter, setRoleFilter] = useState('all') // 'all' | '1' | '2' | '3'
   const [actionSuccess, setActionSuccess] = useState('')
   const [savingId, setSavingId] = useState(null)
+  const [companies, setCompanies] = useState([])
 
   // Modal para invitar / agregar miembro
   const [showInviteModal, setShowInviteModal] = useState(false)
@@ -54,39 +58,115 @@ export default function EquipoView({ user }) {
     last_name: '',
     email: '',
     id_role: 3,
+    id_company: user?.id_company || '',
   })
   const [inviting, setInviting] = useState(false)
 
-  // Cargar personas desde la API
+  const getRoleInfo = (idRole) => {
+    const roleNum = Number(idRole)
+    if (roleNum === 1) {
+      return { label: 'Admin / Super Admin', badgeClass: 'badge-danger', style: { background: '#fee2e2', color: '#b91c1c' } }
+    }
+    if (roleNum === 2) {
+      return { label: 'Owner', badgeClass: 'badge-primary', style: { background: 'var(--color-primary-bg)', color: 'var(--color-primary)' } }
+    }
+    if (roleNum === 3) {
+      return { label: 'Manager', badgeClass: 'badge-neutral', style: { background: '#eff6ff', color: '#1d4ed8' } }
+    }
+    return { label: `Rol ${idRole}`, badgeClass: 'badge-neutral', style: {} }
+  }
+
+  // Cargar empresas y personas desde la API
   useEffect(() => {
     let isMounted = true
-    api.persons.getAll()
-      .then(data => {
-        if (!isMounted) return
-        if (Array.isArray(data) && data.length > 0) {
-          const formatted = data.map((p, idx) => ({
-            id: p.id || idx + 10,
+
+    Promise.all([
+      api.companies.getAll().catch(() => []),
+      api.persons.getAll().catch(() => [])
+    ]).then(([companiesData, personsData]) => {
+      if (!isMounted) return
+
+      const compsList = Array.isArray(companiesData) ? companiesData : []
+      setCompanies(compsList)
+
+      const compsMap = {}
+      compsList.forEach(c => {
+        compsMap[c.id || c.id_company] = c.name || c.nombre || c.company_name
+      })
+
+      if (Array.isArray(personsData) && personsData.length > 0) {
+        const formatted = personsData.map((p, idx) => {
+          // Detectar rol de manera estricta desde id_role, role_id, o rol de user
+          let roleNum = p.id_role != null ? Number(p.id_role) : (p.role_id != null ? Number(p.role_id) : (p.role?.id ? Number(p.role.id) : null))
+          if (roleNum == null) {
+            if (p.is_admin || p.is_superuser || p.role === 'admin' || p.role === 'super_admin') {
+              roleNum = 1
+            } else if (p.role === 'owner') {
+              roleNum = 2
+            } else if (p.role === 'manager') {
+              roleNum = 3
+            } else {
+              roleNum = 3
+            }
+          }
+
+          // Resolver empresa asociada: campo directo, relación user_company o array de companies
+          let companyName = p.company_name || p.nombre_empresa || p.company?.name || p.company?.nombre
+          const companyId = p.id_company || p.company_id || p.id_empresa
+
+          if (!companyName && companyId && compsMap[companyId]) {
+            companyName = compsMap[companyId]
+          }
+
+          // Si tiene relación user_company o lista de empresas
+          const userCompanies = p.user_company || p.companies || p.empresas
+          if (!companyName && Array.isArray(userCompanies) && userCompanies.length > 0) {
+            if (userCompanies.length > 1) {
+              companyName = `${userCompanies.length} Empresas`
+            } else {
+              const firstCo = userCompanies[0]
+              const firstCoId = firstCo.id_company || firstCo.id || firstCo
+              companyName = firstCo.name || firstCo.nombre || compsMap[firstCoId]
+            }
+          }
+
+          // Casos especiales: Super Admin o sin asignación
+          if (!companyName) {
+            if (roleNum === 1) {
+              companyName = 'Todas (Global)'
+            } else if (user?.id_role === 1) {
+              companyName = 'Sin Empresa'
+            } else if (user?.company) {
+              companyName = user.company
+            } else {
+              companyName = 'Sin Empresa'
+            }
+          }
+
+          return {
+            id: p.id || p.id_person || idx + 10,
             name: p.name || p.nombre || 'Miembro',
             last_name: p.last_name || p.apellido || '',
             email: p.email || 'sin-correo@analitika.com',
             phone: p.phone || p.telefono || '—',
-            id_role: Number(p.id_role) || (idx === 0 ? 2 : 3),
-            role_name: Number(p.id_role) === 2 ? 'Owner' : 'Manager',
-            status: 'Activo',
+            id_role: roleNum,
+            role_name: getRoleInfo(roleNum).label,
+            id_company: companyId,
+            company_name: companyName,
+            status: p.status || 'Activo',
             joined_at: p.created_at ? new Date(p.created_at).toLocaleDateString() : '2026',
-          }))
-          setTeam(formatted)
-        }
-      })
-      .catch(() => {
-        // Se conservan los miembros iniciales si la API no está disponible
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false)
-      })
-    return () => { isMounted = false }
-  }, [])
+          }
+        })
+        setTeam(formatted)
+      }
+    }).finally(() => {
+      if (isMounted) setLoading(false)
+    })
 
+    return () => { isMounted = false }
+  }, [user])
+
+  const adminsCount = team.filter(m => m.id_role === 1).length
   const ownersCount = team.filter(m => m.id_role === 2).length
   const managersCount = team.filter(m => m.id_role === 3).length
 
@@ -104,20 +184,25 @@ export default function EquipoView({ user }) {
     setTeam(prev =>
       prev.map(m =>
         m.id === memberId
-          ? { ...m, id_role: newRoleId, role_name: newRoleId === 2 ? 'Owner' : 'Manager' }
+          ? { ...m, id_role: newRoleId, role_name: getRoleInfo(newRoleId).label }
           : m
       )
     )
 
     const memberName = team.find(m => m.id === memberId)?.name || 'Miembro'
-    setActionSuccess(`¡Rol de ${memberName} actualizado a ${newRoleId === 2 ? 'Owner' : 'Manager'}!`)
+    setActionSuccess(`¡Rol de ${memberName} actualizado a ${getRoleInfo(newRoleId).label}!`)
     setSavingId(null)
     setTimeout(() => setActionSuccess(''), 3500)
   }
 
   // Eliminar miembro
-  const handleDeleteMember = (memberId, memberName) => {
+  const handleDeleteMember = async (memberId, memberName) => {
     if (confirm(`¿Estás seguro de remover a ${memberName} del equipo?`)) {
+      try {
+        await api.persons.delete(memberId)
+      } catch (err) {
+        console.error('Error al eliminar en backend:', err)
+      }
       setTeam(prev => prev.filter(m => m.id !== memberId))
       setActionSuccess(`${memberName} fue removido del equipo.`)
       setTimeout(() => setActionSuccess(''), 3000)
@@ -129,14 +214,21 @@ export default function EquipoView({ user }) {
     e.preventDefault()
     setInviting(true)
 
+    const selectedRole = Number(inviteForm.id_role)
+    const companyIdToUse = inviteForm.id_company || user?.id_company
+    const compMatch = companies.find(c => (c.id || c.id_company) == companyIdToUse)
+    const companyDisplayName = compMatch ? (compMatch.name || compMatch.nombre) : (selectedRole === 1 ? 'Todas (Global)' : 'Analitika SAS')
+
     const newMember = {
       id: Date.now(),
       name: inviteForm.name.trim(),
       last_name: inviteForm.last_name.trim(),
       email: inviteForm.email.trim(),
       phone: '—',
-      id_role: Number(inviteForm.id_role),
-      role_name: Number(inviteForm.id_role) === 2 ? 'Owner' : 'Manager',
+      id_role: selectedRole,
+      role_name: getRoleInfo(selectedRole).label,
+      id_company: companyIdToUse,
+      company_name: companyDisplayName,
       status: 'Activo',
       joined_at: 'Hoy',
     }
@@ -147,6 +239,7 @@ export default function EquipoView({ user }) {
         last_name: newMember.last_name,
         email: newMember.email,
         id_role: newMember.id_role,
+        id_company: newMember.id_company,
       })
     } catch {
       // Continuar con creación local
@@ -155,7 +248,7 @@ export default function EquipoView({ user }) {
     setTeam(prev => [newMember, ...prev])
     setInviting(false)
     setShowInviteModal(false)
-    setInviteForm({ name: '', last_name: '', email: '', id_role: 3 })
+    setInviteForm({ name: '', last_name: '', email: '', id_role: 3, id_company: user?.id_company || '' })
     setActionSuccess(`¡Invitación enviada y miembro ${newMember.name} agregado al equipo!`)
     setTimeout(() => setActionSuccess(''), 4000)
   }
@@ -163,7 +256,9 @@ export default function EquipoView({ user }) {
   // Filtrado
   const filteredTeam = team.filter(m => {
     const fullName = `${m.name} ${m.last_name}`.toLowerCase()
-    const matchSearch = fullName.includes(search.toLowerCase()) || m.email.toLowerCase().includes(search.toLowerCase())
+    const matchSearch = fullName.includes(search.toLowerCase()) || 
+                        m.email.toLowerCase().includes(search.toLowerCase()) ||
+                        (m.company_name && m.company_name.toLowerCase().includes(search.toLowerCase()))
     const matchRole = roleFilter === 'all' || String(m.id_role) === roleFilter
     return matchSearch && matchRole
   })
@@ -182,7 +277,7 @@ export default function EquipoView({ user }) {
             </span>
           </div>
           <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
-            Administra los usuarios de tu organización, asigna roles y define permisos de acceso a métricas y campañas.
+            Administra los usuarios de tu organización, consulta su empresa asociada, asigna roles y define permisos.
           </p>
         </div>
 
@@ -200,7 +295,7 @@ export default function EquipoView({ user }) {
       {/* Alerta de acción exitosa */}
       {actionSuccess && (
         <div className="alert-message alert-success" style={{ animation: 'fadeIn 0.2s ease' }}>
-          ✓ {actionSuccess}
+          {actionSuccess}
         </div>
       )}
 
@@ -217,28 +312,37 @@ export default function EquipoView({ user }) {
           color: 'var(--color-primary-dark)',
           fontSize: '0.85rem'
         }}>
-          <span style={{ fontSize: '1.2rem' }}>ℹ</span>
           <span>
-            <strong>Modo de consulta (Manager):</strong> Puedes visualizar a los miembros del equipo y sus roles asignados. La modificación de roles y permisos requiere privilegios de <strong>Owner</strong>.
+            <strong>Modo de consulta (Manager):</strong> Puedes visualizar a los miembros del equipo, su empresa y sus roles asignados. La modificación de roles y permisos requiere privilegios de <strong>Owner</strong> o <strong>Admin</strong>.
           </span>
         </div>
       )}
 
       {/* Tarjetas de Métricas de Equipo */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
         <div className="card card-kpi">
           <span className="card-kpi-label">Total Miembros</span>
           <span className="card-kpi-value">{team.length}</span>
           <span className="card-kpi-delta" style={{ color: 'var(--color-text-muted)' }}>
-            👥 Equipo activo
+            Equipo activo
           </span>
         </div>
+
+        {adminsCount > 0 && (
+          <div className="card card-kpi">
+            <span className="card-kpi-label">Super Admins</span>
+            <span className="card-kpi-value" style={{ color: '#b91c1c' }}>{adminsCount}</span>
+            <span className="card-kpi-delta" style={{ color: '#b91c1c' }}>
+              Control global del sistema
+            </span>
+          </div>
+        )}
 
         <div className="card card-kpi">
           <span className="card-kpi-label">Owners (Propietarios)</span>
           <span className="card-kpi-value" style={{ color: 'var(--color-primary)' }}>{ownersCount}</span>
           <span className="card-kpi-delta" style={{ color: 'var(--color-primary)' }}>
-            🛡 Acceso total + ROI
+            Acceso total + ROI
           </span>
         </div>
 
@@ -246,7 +350,7 @@ export default function EquipoView({ user }) {
           <span className="card-kpi-label">Managers (Gestores)</span>
           <span className="card-kpi-value" style={{ color: '#2563eb' }}>{managersCount}</span>
           <span className="card-kpi-delta" style={{ color: '#2563eb' }}>
-            📊 Gestión operativa
+            Gestión operativa
           </span>
         </div>
       </div>
@@ -258,25 +362,23 @@ export default function EquipoView({ user }) {
             <input
               type="text"
               className="input-control"
-              placeholder="Buscar por nombre o correo..."
+              placeholder="Buscar por nombre, correo o empresa..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              style={{ width: '100%', paddingLeft: 36 }}
+              style={{ width: '100%' }}
             />
-            <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}>
-              🔍
-            </span>
           </div>
 
           <select
             className="input-control"
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            style={{ width: 170, cursor: 'pointer' }}
+            style={{ width: 190, cursor: 'pointer' }}
           >
             <option value="all">Todos los roles</option>
-            <option value="2">Owners únicamente</option>
-            <option value="3">Managers únicamente</option>
+            <option value="1">Super Admin (Nivel 1)</option>
+            <option value="2">Owner (Nivel 2)</option>
+            <option value="3">Manager (Nivel 3)</option>
           </select>
         </div>
 
@@ -292,6 +394,7 @@ export default function EquipoView({ user }) {
             <thead>
               <tr>
                 <th style={{ paddingLeft: 20 }}>Miembro</th>
+                <th>Empresa</th>
                 <th>Correo Electrónico</th>
                 <th>Teléfono</th>
                 <th>Rol Asignado</th>
@@ -302,7 +405,7 @@ export default function EquipoView({ user }) {
             <tbody>
               {filteredTeam.length === 0 ? (
                 <tr>
-                  <td colSpan={isOwner ? 6 : 5} style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-muted)' }}>
+                  <td colSpan={isOwner ? 7 : 6} style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-muted)' }}>
                     No se encontraron miembros con el criterio de búsqueda.
                   </td>
                 </tr>
@@ -310,7 +413,7 @@ export default function EquipoView({ user }) {
                 filteredTeam.map(member => {
                   const initials = `${member.name[0] || ''}${member.last_name[0] || ''}`.toUpperCase() || 'U'
                   const isCurrentLoggedUser = member.email === user?.email
-                  const isMemberOwner = member.id_role === 2
+                  const roleMeta = getRoleInfo(member.id_role)
 
                   return (
                     <tr key={member.id}>
@@ -320,8 +423,8 @@ export default function EquipoView({ user }) {
                             width: 38,
                             height: 38,
                             borderRadius: '50%',
-                            background: isMemberOwner ? 'var(--color-primary-bg)' : '#eff6ff',
-                            color: isMemberOwner ? 'var(--color-primary)' : '#2563eb',
+                            background: roleMeta.style.background || '#eff6ff',
+                            color: roleMeta.style.color || '#2563eb',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -347,6 +450,16 @@ export default function EquipoView({ user }) {
                         </div>
                       </td>
 
+                      <td>
+                        <span style={{ 
+                          fontWeight: 600, 
+                          color: member.id_role === 1 ? 'var(--color-danger)' : 'var(--color-text)',
+                          fontSize: '0.85rem' 
+                        }}>
+                          {member.company_name || 'Sin Empresa'}
+                        </span>
+                      </td>
+
                       <td style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
                         {member.email}
                       </td>
@@ -356,17 +469,17 @@ export default function EquipoView({ user }) {
                       </td>
 
                       <td>
-                        <span className={`badge ${isMemberOwner ? 'badge-primary' : 'badge-neutral'}`} style={{
-                          background: isMemberOwner ? 'var(--color-primary-bg)' : '#eff6ff',
-                          color: isMemberOwner ? 'var(--color-primary)' : '#1d4ed8',
-                        }}>
-                          {isMemberOwner ? '🛡 Owner' : '📊 Manager'}
+                        <span 
+                          className={`badge ${roleMeta.badgeClass}`}
+                          style={roleMeta.style}
+                        >
+                          {roleMeta.label}
                         </span>
                       </td>
 
                       <td>
                         <span className="badge badge-success">
-                          ✓ {member.status}
+                          {member.status}
                         </span>
                       </td>
 
@@ -376,7 +489,7 @@ export default function EquipoView({ user }) {
                             <select
                               value={member.id_role}
                               onChange={(e) => handleRoleChange(member.id, Number(e.target.value))}
-                              disabled={savingId === member.id}
+                              disabled={savingId === member.id || (member.id_role === 1 && user?.id_role !== 1)}
                               className="input-control"
                               style={{
                                 padding: '4px 8px',
@@ -388,15 +501,16 @@ export default function EquipoView({ user }) {
                               }}
                               title="Cambiar rol del miembro"
                             >
-                              <option value={2}>Rol: Owner (Total)</option>
-                              <option value={3}>Rol: Manager (Operativo)</option>
+                              {user?.id_role === 1 && <option value={1}>Rol 1: Super Admin</option>}
+                              <option value={2}>Rol 2: Owner (Total)</option>
+                              <option value={3}>Rol 3: Manager (Operativo)</option>
                             </select>
 
                             {!isCurrentLoggedUser && (
                               <button
                                 className="btn-ghost"
                                 onClick={() => handleDeleteMember(member.id, `${member.name} ${member.last_name}`)}
-                                title="Remover del equipo"
+                                title="Remover del equipo (Eliminación en base de datos)"
                                 style={{ color: 'var(--color-danger)', padding: '4px 8px' }}
                               >
                                 ✕

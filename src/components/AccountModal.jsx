@@ -113,7 +113,7 @@ export default function AccountModal({ isOpen, onClose, user, onUpdateUser }) {
               </span>
               {formData.company && (
                 <span className="badge badge-neutral">
-                  🏢 {formData.company}
+                  {formData.company}
                 </span>
               )}
             </div>
@@ -123,12 +123,12 @@ export default function AccountModal({ isOpen, onClose, user, onUpdateUser }) {
         {/* Notifications / Alerts */}
         {success && (
           <div className="alert-message alert-success">
-            ✓ {success}
+            {success}
           </div>
         )}
         {error && (
           <div className="alert-message alert-error">
-            ⚠ {error}
+            {error}
           </div>
         )}
 
