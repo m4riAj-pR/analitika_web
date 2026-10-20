@@ -12,7 +12,7 @@ import { Navigate } from 'react-router-dom'
 export default function ProtectedRoute({ user, allowedRoles, redirectTo = '/', children }) {
   // No autenticado → login
   if (!user) {
-    return <Navigate to="/" replace />
+    return <Navigate to={redirectTo} replace />
   }
 
   // Rol no permitido → redirige a su ruta home según su rol

@@ -1,100 +1,85 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import logo from '../assets/logo_web.png'
 import AccountModal from './AccountModal'
 import NotificationsDropdown from './NotificationsDropdown'
 import { api } from '../services/api'
+import { roleLabel } from '../lib/format'
+import { IconBell, IconBuilding, IconClose, IconLogout, IconSearch } from './ui/Icons'
+
+// Re-exportados para compatibilidad con las páginas que los importan desde aquí
+export {
+  IconDashboard, IconCampaign, IconUsers, IconLink, IconFolderPlus, IconRanking,
+  IconAnalytics, IconBuilding, IconShield,
+} from './ui/Icons'
 
 export default function DashboardShell({ sidebarItems, tabs, user, onLogout, onUpdateUser, children }) {
   const navigate = useNavigate()
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
-  const [showSearchModal, setShowSearchModal] = useState(false)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [campaignsList, setCampaignsList] = useState([])
-  const [unreadCount, setUnreadCount] = useState(3)
+  const [showSearch, setShowSearch] = useState(false)
+  const [query, setQuery] = useState('')
+  const [campaigns, setCampaigns] = useState([])
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [activeIdx, setActiveIdx] = useState(0)
 
-  // Cargar campañas para búsqueda rápida si es Owner/Manager
-  useEffect(() => {
-    if (user?.id_role === 2 || user?.id_role === 3) {
-      api.campaigns.getAll()
-        .then(data => setCampaignsList(Array.isArray(data) ? data : []))
-        .catch(() => {})
-    }
-  }, [user])
+  const isTenantUser = user?.id_role === 2 || user?.id_role === 3
+  const companyName = user?.company_name || (user?.id_role === 1 ? 'Administración de plataforma' : null)
 
-  // Atajo de teclado: Ctrl+K / Cmd+K para abrir búsqueda
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    api.notifications.getUnreadCount().then(setUnreadCount).catch(() => {})
+  }, [])
+
+  // Campañas para la búsqueda rápida (Ctrl+K)
+  useEffect(() => {
+    if (isTenantUser) api.campaigns.getAll().then(setCampaigns).catch(() => {})
+  }, [isTenantUser])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        setShowSearchModal(prev => !prev)
+        setShowSearch(prev => !prev)
       } else if (e.key === 'Escape') {
-        setShowSearchModal(false)
+        setShowSearch(false)
       }
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   const initials = (user?.name || user?.email || 'U')
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
+    .split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
 
-  // Items buscables
-  const navSuggestions = (sidebarItems || []).map(item => ({
-    type: 'Página',
-    title: item.label,
-    subtitle: `Ir a ${item.label}`,
-    to: item.to,
-  }))
+  const items = [
+    ...(sidebarItems || []).map(item => ({ type: 'Sección', title: item.label, subtitle: 'Ir a la sección', to: item.to })),
+    ...campaigns.map(c => ({ type: 'Campaña', title: c.name, subtitle: 'Ver desglose de la campaña', to: `/dashboard/desglose?id=${c.id}` })),
+  ]
+  const q = query.trim().toLowerCase()
+  const results = (q ? items.filter(i => i.title.toLowerCase().includes(q) || i.type.toLowerCase().includes(q)) : items).slice(0, 8)
 
-  const campaignSuggestions = campaignsList.map(c => ({
-    type: 'Campaña',
-    title: c.name || c.nombre || `Campaña #${c.id_campaign || c.id}`,
-    subtitle: `Estado: ${c.status || 'Activa'} · Inversión: $${c.spent || 0}`,
-    to: '/dashboard/campanas',
-  }))
-
-  const allSearchItems = [...navSuggestions, ...campaignSuggestions]
-  const filteredSearch = searchQuery.trim()
-    ? allSearchItems.filter(item =>
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.subtitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.type.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : allSearchItems.slice(0, 8)
-
-  const handleSelectSearchItem = (item) => {
-    setShowSearchModal(false)
-    setSearchQuery('')
-    if (item.to) {
-      navigate(item.to)
-    }
+  const selectResult = (item) => {
+    setShowSearch(false)
+    setQuery('')
+    setActiveIdx(0)
+    if (item?.to) navigate(item.to)
   }
+
+  const closeNotifications = useCallback(() => setShowNotifications(false), [])
 
   return (
     <div className="app-shell">
-      {/* ── SIDEBAR ── */}
-      <aside className="app-sidebar" role="navigation" aria-label="Navegación principal">
-        {/* Logo */}
+      <aside className="app-sidebar" aria-label="Navegación principal">
         <div className="sidebar-logo">
           <img src={logo} alt="Analitika" />
         </div>
-
-        {/* Nav items */}
         <nav className="sidebar-nav">
           {sidebarItems.map(item => (
             <NavLink
               key={item.id}
               to={item.to}
               end={item.exact}
-              className={({ isActive }) =>
-                `sidebar-item${isActive ? ' active' : ''}`
-              }
+              className={({ isActive }) => `sidebar-item${isActive ? ' active' : ''}`}
               data-tooltip={item.label}
               aria-label={item.label}
             >
@@ -102,302 +87,141 @@ export default function DashboardShell({ sidebarItems, tabs, user, onLogout, onU
             </NavLink>
           ))}
         </nav>
-
-        {/* Logout al fondo */}
-        <button
-          className="sidebar-item"
-          onClick={onLogout}
-          data-tooltip="Cerrar sesión"
-          aria-label="Cerrar sesión"
-          style={{ marginTop: 'auto' }}
-        >
+        <button className="sidebar-item" onClick={onLogout} data-tooltip="Cerrar sesión" aria-label="Cerrar sesión">
           <IconLogout />
         </button>
       </aside>
 
-      {/* ── TOPBAR ── */}
-      <header className="app-topbar" role="banner">
-        {/* Pestañas de navegación */}
-        <div className="topbar-tabs" role="tablist">
+      <header className="app-topbar">
+        <nav className="topbar-tabs" aria-label="Secciones">
           {tabs.map(tab => (
             <NavLink
               key={tab.id}
               to={tab.to}
               end={tab.exact}
-              className={({ isActive }) =>
-                `topbar-tab${isActive ? ' active' : ''}`
-              }
-              role="tab"
+              className={({ isActive }) => `topbar-tab${isActive ? ' active' : ''}`}
             >
               {tab.label}
             </NavLink>
           ))}
-        </div>
+        </nav>
 
-        {/* Acciones derechas */}
         <div className="topbar-actions">
-          {/* Búsqueda */}
+          {companyName && (
+            <div className="topbar-company" title={`Empresa: ${companyName}`}>
+              <IconBuilding size={16} />
+              <span>{companyName}</span>
+              {user?.companies?.length > 1 && (
+                <span className="topbar-company-more">+{user.companies.length - 1}</span>
+              )}
+            </div>
+          )}
+
           <button
-            className={`topbar-icon-btn ${showSearchModal ? 'active' : ''}`}
-            aria-label="Buscar"
-            id="topbar-search-btn"
-            onClick={() => setShowSearchModal(true)}
-            title="Buscar en la plataforma (Ctrl+K)"
+            className="topbar-icon-btn"
+            aria-label="Buscar (Ctrl+K)"
+            onClick={() => setShowSearch(true)}
+            title="Buscar (Ctrl+K)"
           >
             <IconSearch />
           </button>
 
-          {/* Notificaciones */}
-          <div className="notif-wrapper" style={{ position: 'relative' }}>
+          <div className="notif-wrapper">
             <button
-              className={`topbar-icon-btn ${showNotifications ? 'active' : ''}`}
-              aria-label="Notificaciones"
-              id="topbar-notif-btn"
+              className={`topbar-icon-btn${showNotifications ? ' active' : ''}`}
+              aria-label={`Notificaciones${unreadCount ? `, ${unreadCount} sin leer` : ''}`}
+              aria-expanded={showNotifications}
               onClick={() => setShowNotifications(prev => !prev)}
               title="Notificaciones"
             >
               <IconBell />
               {unreadCount > 0 && (
-                <span className="notif-badge-count" aria-hidden="true">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
+                <span className="notif-badge-count" aria-hidden="true">{unreadCount > 9 ? '9+' : unreadCount}</span>
               )}
             </button>
-
-            <NotificationsDropdown
-              isOpen={showNotifications}
-              onClose={() => setShowNotifications(false)}
-              onUnreadChange={setUnreadCount}
-            />
+            {showNotifications && (
+              <NotificationsDropdown onClose={closeNotifications} onUnreadChange={setUnreadCount} />
+            )}
           </div>
 
-          {/* Perfil / Account */}
           <button
             className="topbar-profile"
             onClick={() => setShowAccountModal(true)}
-            id="topbar-profile-btn"
-            aria-label={`Perfil de ${user?.name || user?.email}`}
-            title="Mi Cuenta — Editar información personal"
+            aria-label={`Mi cuenta: ${user?.name || user?.email}`}
+            title="Mi cuenta"
           >
             <div className="topbar-avatar" aria-hidden="true">{initials}</div>
-            <span className="topbar-username">{user?.name || user?.email || 'Usuario'}</span>
+            <span className="topbar-user-text">
+              <span className="topbar-username">{user?.name || user?.email || 'Usuario'}</span>
+              <span className="topbar-role">{roleLabel(user?.id_role)}</span>
+            </span>
           </button>
         </div>
       </header>
 
-      {/* ── CONTENIDO PRINCIPAL ── */}
       <main className="app-main" id="main-content">
         {children}
       </main>
 
-      {/* ── MODAL DE BÚSQUEDA RÁPIDA (GLOBAL COMMAND PALETTE) ── */}
-      {showSearchModal && (
-        <div className="modal-backdrop" onClick={() => setShowSearchModal(false)} role="dialog" aria-modal="true">
-          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, padding: '20px 24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid var(--color-surface-border)', paddingBottom: 14 }}>
-              <div style={{ color: 'var(--color-primary)', width: 22, height: 22 }}>
-                <IconSearch />
-              </div>
+      {showSearch && (
+        <div className="modal-backdrop" onClick={() => setShowSearch(false)} role="dialog" aria-modal="true" aria-label="Búsqueda rápida">
+          <div className="modal-container search-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="search-input-row">
+              <IconSearch size={20} />
               <input
                 type="text"
                 autoFocus
-                placeholder="Buscar páginas, secciones o campañas... (ESC para cerrar)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  border: 'none',
-                  outline: 'none',
-                  fontSize: '1rem',
-                  fontFamily: 'inherit',
-                  width: '100%',
-                  color: 'var(--color-text)',
-                  background: 'transparent'
+                placeholder="Buscar secciones o campañas"
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setActiveIdx(0) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(i => Math.min(i + 1, results.length - 1)) }
+                  if (e.key === 'ArrowUp') { e.preventDefault(); setActiveIdx(i => Math.max(i - 1, 0)) }
+                  if (e.key === 'Enter') selectResult(results[activeIdx])
                 }}
+                aria-label="Término de búsqueda"
               />
-              <button
-                className="modal-close-btn"
-                onClick={() => setShowSearchModal(false)}
-                aria-label="Cerrar búsqueda"
-              >
-                ✕
+              <button className="modal-close-btn" onClick={() => setShowSearch(false)} aria-label="Cerrar búsqueda">
+                <IconClose size={16} />
               </button>
             </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 340, overflowY: 'auto', marginTop: 10 }}>
-              {filteredSearch.length === 0 ? (
-                <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.88rem', padding: '28px 0' }}>
-                  No se encontraron resultados para &ldquo;{searchQuery}&rdquo;
-                </p>
-              ) : (
-                filteredSearch.map((item, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => handleSelectSearchItem(item)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '10px 14px',
-                      borderRadius: 'var(--radius-md)',
-                      cursor: 'pointer',
-                      transition: 'background var(--transition-fast)',
-                      background: 'var(--color-surface-mid)',
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-primary-bg)'}
-                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--color-surface-mid)'}
+            <ul className="search-results">
+              {results.length === 0 ? (
+                <li className="search-empty">Sin resultados para “{query}”</li>
+              ) : results.map((item, idx) => (
+                <li key={`${item.type}-${item.title}-${idx}`}>
+                  <button
+                    type="button"
+                    className={`search-result${idx === activeIdx ? ' active' : ''}`}
+                    onClick={() => selectResult(item)}
+                    onMouseEnter={() => setActiveIdx(idx)}
                   >
-                    <div>
-                      <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', display: 'block' }}>
-                        {item.title}
-                      </span>
-                      <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
-                        {item.subtitle}
-                      </span>
-                    </div>
-                    <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>
-                      {item.type}
+                    <span>
+                      <span className="search-result-title">{item.title}</span>
+                      <span className="search-result-sub">{item.subtitle}</span>
                     </span>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-surface-border)', paddingTop: 10, marginTop: 10, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-              <span>Navega rápido con <strong>Ctrl + K</strong></span>
-              <span>Presiona <strong>ESC</strong> para salir</span>
+                    <span className="badge badge-neutral">{item.type}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <div className="search-footer">
+              <span><kbd>Ctrl</kbd> + <kbd>K</kbd> abrir / cerrar</span>
+              <span><kbd>Enter</kbd> seleccionar · <kbd>Esc</kbd> salir</span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── MODAL DE CUENTA / INFORMACIÓN PERSONAL ── */}
+      {showAccountModal && (
       <AccountModal
-        isOpen={showAccountModal}
+        isOpen
         onClose={() => setShowAccountModal(false)}
         user={user}
         onUpdateUser={onUpdateUser}
         onLogout={onLogout}
       />
+      )}
     </div>
-  )
-}
-
-/* ─── Inline SVG Icons ─────────────────────────────────────── */
-// Se usan SVGs inline para evitar dependencias externas.
-// Todos los íconos exportados desde aquí para reutilización.
-
-export function IconDashboard() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  )
-}
-
-export function IconCampaign() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 5h18M3 12h18M3 19h18" />
-      <circle cx="7" cy="5" r="1.5" fill="currentColor" stroke="none" />
-      <circle cx="7" cy="12" r="1.5" fill="currentColor" stroke="none" />
-      <circle cx="7" cy="19" r="1.5" fill="currentColor" stroke="none" />
-    </svg>
-  )
-}
-
-export function IconRanking() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="10" width="4" height="11" rx="1" />
-      <rect x="10" y="5" width="4" height="16" rx="1" />
-      <rect x="17" y="13" width="4" height="8" rx="1" />
-    </svg>
-  )
-}
-
-export function IconLink() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
-      <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
-    </svg>
-  )
-}
-
-export function IconFolderPlus() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
-      <line x1="12" y1="11" x2="12" y2="17" />
-      <line x1="9" y1="14" x2="15" y2="14" />
-    </svg>
-  )
-}
-
-export function IconBuilding() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" />
-      <path d="M9 3v18M15 3v18M3 9h18M3 15h18" />
-    </svg>
-  )
-}
-
-export function IconUsers() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 00-3-3.87" />
-      <path d="M16 3.13a4 4 0 010 7.75" />
-    </svg>
-  )
-}
-
-export function IconConnect() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
-    </svg>
-  )
-}
-
-export function IconShield() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  )
-}
-
-function IconSearch() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="11" cy="11" r="8" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  )
-}
-
-function IconBell() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-      <path d="M13.73 21a2 2 0 01-3.46 0" />
-    </svg>
-  )
-}
-
-function IconLogout() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
-      <polyline points="16 17 21 12 16 7" />
-      <line x1="21" y1="12" x2="9" y2="12" />
-    </svg>
   )
 }

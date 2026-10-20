@@ -4,10 +4,11 @@ import pantalla from '../assets/pantalla_ejemplo.png'
 import logo from '../assets/icon.png'
 import { api } from '../services/api'
 import './Login.css'
+import { IconClose } from '../components/ui/Icons'
 
 const I18N = {
   ES: {
-    langBtn: '▼ ES',
+    langBtn: 'ES',
     registerNav: 'Regístrate',
     title: 'Iniciar sesión',
     emailPlaceholder: 'Correo electrónico',
@@ -33,7 +34,7 @@ const I18N = {
     forgotSuccessDefault: 'Si el correo está registrado, recibirás las instrucciones en breve.',
   },
   EN: {
-    langBtn: '▼ EN',
+    langBtn: 'EN',
     registerNav: 'Register',
     title: 'Sign in',
     emailPlaceholder: 'Email address',
@@ -332,7 +333,7 @@ export default function Login({ onLogin }) {
                 <h2 className="modal-title">{t.registerModalTitle}</h2>
                 <p className="modal-subtitle">{t.registerModalSubtitle}</p>
               </div>
-              <button className="modal-close-btn" onClick={() => setShowRegisterModal(false)}>✕</button>
+              <button className="modal-close-btn" onClick={() => setShowRegisterModal(false)} aria-label="Cerrar"><IconClose size={16} /></button>
             </div>
 
             {registerSuccess && (
@@ -444,7 +445,7 @@ export default function Login({ onLogin }) {
                 <h2 className="modal-title">{t.forgotTitle}</h2>
                 <p className="modal-subtitle">{t.forgotSubtitle}</p>
               </div>
-              <button className="modal-close-btn" onClick={() => setShowForgotModal(false)}>✕</button>
+              <button className="modal-close-btn" onClick={() => setShowForgotModal(false)} aria-label="Cerrar"><IconClose size={16} /></button>
             </div>
 
             {forgotSuccess && (

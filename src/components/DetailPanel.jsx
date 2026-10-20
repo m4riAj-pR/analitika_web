@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { IconClose } from './ui/Icons'
 
 /**
  * DetailPanel — Panel deslizable desde la derecha.
@@ -58,7 +59,7 @@ export default function DetailPanel({ isOpen, onClose, title, children }) {
             aria-label="Cerrar panel"
             id="detail-panel-close-btn"
           >
-            ✕
+            <IconClose size={18} />
           </button>
         </div>
 

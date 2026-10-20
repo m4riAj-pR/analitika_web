@@ -1,297 +1,311 @@
-const API_URL = (import.meta.env.VITE_API_URL || 'https://analitika-production.up.railway.app').replace(/\/+$/, '');
-
 /**
- * Cliente HTTP base para consumir la API de Railway
+ * Cliente de la API de Analitika (FastAPI desplegada en Railway).
+ *
+ * Todas las rutas de este archivo están verificadas contra el backend
+ * (app/routers/*.py). No hay respuestas simuladas: si el backend falla,
+ * el error se propaga a la vista para que lo muestre al usuario.
  */
+const API_URL = (import.meta.env.VITE_API_URL || 'https://analitika-production.up.railway.app').replace(/\/+$/, '')
+
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+/** Convierte el `detail` de FastAPI (string | array de validaciones) en texto legible. */
+function readDetail(data) {
+  if (!data) return null
+  const d = data.detail ?? data.message
+  if (typeof d === 'string') return d
+  if (Array.isArray(d)) {
+    return d.map(e => {
+      const field = Array.isArray(e.loc) ? e.loc.filter(x => x !== 'body').join('.') : ''
+      return field ? `${field}: ${e.msg}` : e.msg
+    }).join(' · ')
+  }
+  return null
+}
+
+let unauthorizedHandler = null
+/** Permite a App reaccionar ante un token vencido (401) cerrando la sesión. */
+export function onUnauthorized(fn) {
+  unauthorizedHandler = fn
+}
+
 export async function apiFetch(endpoint, options = {}) {
-  const token = localStorage.getItem('token');
-
-  // Asegurar formato de ruta relativa
-  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-
+  const token = localStorage.getItem('token')
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
   const headers = {
-    'Content-Type': 'application/json',
+    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
-  };
-
-  const response = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers,
-  });
-
-  if (!response.ok) {
-    let errorDetail = `Error HTTP ${response.status}`;
-    try {
-      const errorData = await response.json();
-      errorDetail = errorData.detail || errorData.message || JSON.stringify(errorData);
-    } catch {
-      // Ignorar si no viene JSON
-    }
-    const err = new Error(errorDetail);
-    err.status = response.status;
-    throw err;
   }
 
-  return response.json();
+  let response
+  try {
+    response = await fetch(`${API_URL}${path}`, { ...options, headers })
+  } catch {
+    throw new ApiError('No fue posible conectar con el servidor. Verifica tu conexión.', 0)
+  }
+
+  if (!response.ok) {
+    let message = `Error HTTP ${response.status}`
+    try {
+      message = readDetail(await response.json()) || message
+    } catch { /* respuesta sin JSON */ }
+    if (response.status === 401 && token && unauthorizedHandler) unauthorizedHandler()
+    throw new ApiError(message, response.status)
+  }
+
+  if (response.status === 204) return null
+  const type = response.headers.get('content-type') || ''
+  return type.includes('application/json') ? response.json() : response.text()
+}
+
+const json = (method, body) => ({ method, body: JSON.stringify(body) })
+const num = (v) => {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+/* ─── Normalizadores ──────────────────────────────────────────── */
+
+/**
+ * Unifica la forma de un usuario: el backend devuelve `companies: [{id_company, name}]`
+ * pero no `id_company` ni `company`. Se derivan aquí para toda la app.
+ */
+export function normalizeUser(raw) {
+  if (!raw) return null
+  const companies = Array.isArray(raw.companies)
+    ? raw.companies.filter(Boolean).map(c => ({ id_company: c.id_company, name: c.name }))
+    : []
+  const primary = companies[0] || null
+  return {
+    ...raw,
+    companies,
+    id_company: raw.id_company ?? primary?.id_company ?? null,
+    company_name: primary?.name || raw.company_name || null,
+  }
+}
+
+/** Campaña tal como sale de `GET /analitika/campaigns` (tabla campaigns). */
+export function normalizeCampaign(raw) {
+  return {
+    id: raw.id_campaign,
+    id_campaign: raw.id_campaign,
+    id_company: raw.id_company,
+    name: raw.name || `Campaña ${raw.id_campaign}`,
+    description: raw.description || '',
+    status: raw.status || 'draft',
+    start_date: raw.start_date ? String(raw.start_date).slice(0, 10) : null,
+    end_date: raw.end_date ? String(raw.end_date).slice(0, 10) : null,
+    spent: raw.spent != null ? num(raw.spent) : null,
+    budget: raw.budget != null ? num(raw.budget) : null,
+  }
 }
 
 /**
- * Servicios específicos organizados por módulo
+ * Métricas de `GET /stats/{id}`. Para Managers el backend elimina los campos
+ * financieros, por eso se conservan como `null` (no 0) cuando no llegan.
  */
+export function normalizeStats(raw = {}) {
+  const has = (k) => Object.prototype.hasOwnProperty.call(raw, k)
+  return {
+    clicks: num(raw.clics),
+    conversions: num(raw.conversiones),
+    impressions: num(raw.impressions),
+    ctr: num(raw.ctr_real),
+    conversion_rate: num(raw.conversion_rate),
+    aov: num(raw.aov),
+    data_source: raw.data_source || 'manual',
+    revenue: has('ingresos') ? num(raw.ingresos) : null,
+    spent: has('spent') ? num(raw.spent) : null,
+    roi: has('roi') ? num(raw.roi) : null,
+    roas: has('roas') ? num(raw.roas) : null,
+    cpc: has('cpc') ? num(raw.cpc) : null,
+    cpa: has('cpa') ? num(raw.cpa) : null,
+  }
+}
+
+/** Enlace público que registra el clic: `GET /c/{id_link}` del backend. */
+export const trackingUrl = (idLink) => `${API_URL}/c/${idLink}`
+
+/* ─── Servicios ───────────────────────────────────────────────── */
+
 export const api = {
   baseUrl: API_URL,
 
-  // Verificación de salud / conexión
   health: {
     check: () => apiFetch('/'),
   },
 
-  // Autenticación
   auth: {
     login: async (email, password) => {
-      const data = await apiFetch('/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password }),
-      });
+      const data = await apiFetch('/login', json('POST', { email, password }))
       if (data?.access_token) {
-        localStorage.setItem('token', data.access_token);
-        if (data.user) {
-          localStorage.setItem('user', JSON.stringify(data.user));
-        }
+        localStorage.setItem('token', data.access_token)
+        if (data.user) localStorage.setItem('user', JSON.stringify(normalizeUser(data.user)))
       }
-      return data;
+      return data
     },
-    register: (payload) =>
-      apiFetch('/register', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    forgotPassword: (email) =>
-      apiFetch('/forgot-password', {
-        method: 'POST',
-        body: JSON.stringify({ email }),
-      }),
-    me: () => apiFetch('/me'),
-    updateProfile: async (payload) => {
-      try {
-        const data = await apiFetch('/me', {
-          method: 'PUT',
-          body: JSON.stringify(payload),
-        });
-        const currentUser = api.auth.getUser() || {};
-        const updated = { ...currentUser, ...data, ...payload };
-        localStorage.setItem('user', JSON.stringify(updated));
-        return updated;
-      } catch {
-        const currentUser = api.auth.getUser() || {};
-        const updated = { ...currentUser, ...payload };
-        localStorage.setItem('user', JSON.stringify(updated));
-        return updated;
-      }
-    },
+    register: (payload) => apiFetch('/register', json('POST', payload)),
+    forgotPassword: (email) => apiFetch('/forgot-password', json('POST', { email })),
+    /** Perfil completo del usuario autenticado, con sus empresas. */
+    me: async () => normalizeUser(await apiFetch('/me')),
+    /**
+     * El backend no expone `PUT /me`; el perfil vive en la tabla persons.
+     * `PUT /analitika/persons/{id_person}` requiere rol Owner o Super Admin.
+     */
+    updateProfile: (idPerson, { name, email, phone }) =>
+      apiFetch(`/analitika/persons/${idPerson}`, json('PUT', { name, email, phone: phone || null })),
     logout: () => {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
+      localStorage.removeItem('token')
+      localStorage.removeItem('user')
     },
     getToken: () => localStorage.getItem('token'),
     getUser: () => {
       try {
-        const u = localStorage.getItem('user');
-        return u ? JSON.parse(u) : null;
+        const u = localStorage.getItem('user')
+        return u ? normalizeUser(JSON.parse(u)) : null
       } catch {
-        return null;
+        return null
       }
     },
+    saveUser: (user) => localStorage.setItem('user', JSON.stringify(user)),
   },
 
-  // Campañas
   campaigns: {
-    getAll: () => apiFetch('/analitika/campaigns'),
-    getTop: (limit = 5) => apiFetch(`/analitika/campaigns/top?limit=${limit}`),
-    getById: (id) => apiFetch(`/analitika/campaigns/${id}`),
-    create: (data) =>
-      apiFetch('/analitika/campaigns', {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    update: (id, data) =>
-      apiFetch(`/analitika/campaigns/${id}`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-      }),
+    getAll: async () => {
+      const data = await apiFetch('/analitika/campaigns')
+      return Array.isArray(data) ? data.map(normalizeCampaign) : []
+    },
+    getTop: async (limit = 5) => {
+      const data = await apiFetch(`/analitika/campaigns/top?limit=${limit}`)
+      return Array.isArray(data) ? data : []
+    },
+    create: (data) => apiFetch('/analitika/campaigns', json('POST', data)),
+    update: (id, data) => apiFetch(`/analitika/campaigns/${id}`, json('PUT', data)),
+    remove: (id) => apiFetch(`/analitika/campaigns/${id}`, { method: 'DELETE' }),
+    /** Predicción del modelo con los datos reales de la campaña (Owner / Super Admin). */
+    predict: (id) => apiFetch(`/analitika/campaigns/${id}/predict`),
+    /** Simulador: inferencia con variables de 48h introducidas manualmente. */
     predictRoi: (data) =>
-      apiFetch('/api/v1/campaigns/predict-roi', {
-        method: 'POST',
-        body: JSON.stringify({
-          channel: data.channel || 'Meta',
-          spend_48h: parseFloat(data.spend_48h ?? 0),
-          clicks_48h: parseInt(data.clicks_48h ?? 0, 10),
-          conversions_48h: parseInt(data.conversions_48h ?? 0, 10),
-          revenue_48h: parseFloat(data.revenue_48h ?? 0),
-        }),
-      }),
+      apiFetch('/api/v1/campaigns/predict-roi', json('POST', {
+        channel: data.channel,
+        spend_48h: num(data.spend_48h),
+        clicks_48h: Math.round(num(data.clicks_48h)),
+        conversions_48h: Math.round(num(data.conversions_48h)),
+        revenue_48h: num(data.revenue_48h),
+      })),
   },
 
-  // Canales de difusión
+  stats: {
+    get: async (id) => normalizeStats(await apiFetch(`/stats/${id}`)),
+    clicksByDay: async (id) => {
+      const res = await apiFetch(`/stats/${id}/clics-por-dia`)
+      return (res?.data || []).map(d => ({ date: d.fecha, clicks: num(d.clics) }))
+    },
+    clicksTable: async (id) => {
+      const res = await apiFetch(`/stats/${id}/tabla-clics`)
+      return res?.data || []
+    },
+    /** Campañas + métricas por campaña en paralelo. Una campaña sin acceso a stats queda con métricas en 0. */
+    campaignsWithStats: async () => {
+      const list = await api.campaigns.getAll()
+      const stats = await Promise.all(list.map(c => api.stats.get(c.id).catch(() => normalizeStats())))
+      return list.map((c, i) => ({ ...c, stats: stats[i] }))
+    },
+  },
+
   channels: {
-    createChannel: async (data) => {
-      try {
-        return await apiFetch('/analitika/channels/', {
-          method: 'POST',
-          body: JSON.stringify(data),
-        });
-      } catch {
-        return { success: true, ...data, id: Date.now() };
-      }
+    getAll: async () => {
+      const data = await apiFetch('/analitika/channels')
+      return Array.isArray(data) ? data : []
     },
-    getByCampaign: (campaignId) =>
-      apiFetch(`/analitika/channels/?id_campaign=${campaignId}`).catch(() => []),
+    /** Solo Owner / Super Admin. Body: { name, description }. */
+    create: (data) => apiFetch('/analitika/channels', json('POST', data)),
   },
 
-  // Links Trackeables
   trackingLinks: {
-    create: async (data) => {
-      const code = Math.random().toString(36).substring(2, 8);
-      const publicTrackUrl = `https://track.analitika.com/l/${code}`;
-      try {
-        const res = await apiFetch('/analitika/tracking-links/', {
-          method: 'POST',
-          body: JSON.stringify({ ...data, code, public_url: publicTrackUrl }),
-        });
-        return { ...res, publicTrackUrl: res.public_url || publicTrackUrl, code };
-      } catch {
-        return {
-          id: Date.now(),
-          ...data,
-          code,
-          publicTrackUrl,
-          created_at: new Date().toISOString(),
-        };
-      }
+    getAll: async (campaignId) => {
+      const q = campaignId != null ? `?campaign_id=${campaignId}` : ''
+      const data = await apiFetch(`/analitika/tracking-links${q}`)
+      return Array.isArray(data) ? data : []
     },
-    getByCampaign: (campaignId) =>
-      apiFetch(`/analitika/tracking-links/?id_campaign=${campaignId}`).catch(() => []),
+    /** Body: { id_campaign, id_channel?, destination }. Devuelve { ok, id_link }. */
+    create: (data) => apiFetch('/analitika/tracking-links', json('POST', data)),
+    remove: (id) => apiFetch(`/analitika/tracking-links/${id}`, { method: 'DELETE' }),
   },
 
-  // Conexiones de Publicidad (Meta Ads API)
-  adConnections: {
-    getActive: async (companyId) => {
-      try {
-        return await apiFetch(`/analitika/connections/?id_company=${companyId}`);
-      } catch {
-        return [
-          {
-            id: 'meta_act_101',
-            provider: 'meta_ads',
-            name: 'Cuenta Principal Meta Ads (Instagram/FB)',
-            account_id: 'act_982314561',
-            status: 'connected',
-          },
-        ];
-      }
-    },
-    getExternalCampaigns: async (accountId) => {
-      try {
-        return await apiFetch(`/analitika/connections/meta/campaigns/?account_id=${accountId}`);
-      } catch {
-        return [
-          { id: 'meta_c_201', name: 'Meta - Leads Conversión Febrero', status: 'ACTIVE', spend: 280.50 },
-          { id: 'meta_c_202', name: 'Meta - Tráfico Web Retargeting', status: 'ACTIVE', spend: 410.00 },
-          { id: 'meta_c_203', name: 'Meta - Branding & Reconocimiento', status: 'PAUSED', spend: 150.00 },
-        ];
-      }
-    },
-    mapExternal: async (campaignId, payload) => {
-      try {
-        return await apiFetch('/analitika/connections/map/', {
-          method: 'POST',
-          body: JSON.stringify({ id_campaign: campaignId, ...payload }),
-        });
-      } catch {
-        return { success: true, mapped: true, campaignId, ...payload };
-      }
-    },
-    deleteMapping: async (campaignId) => {
-      try {
-        return await apiFetch(`/analitika/connections/map/${campaignId}`, {
-          method: 'DELETE',
-        });
-      } catch {
-        return { success: true, unmapped: true };
-      }
+  clicks: {
+    getAll: async () => {
+      const data = await apiFetch('/analitika/clicks')
+      return Array.isArray(data) ? data : []
     },
   },
 
-  // Notificaciones
   notifications: {
-    getAll: () => apiFetch('/analitika/notifications/'),
-    getUnreadCount: () => apiFetch('/analitika/notifications/unread-count/'),
-    markAsRead: (id) =>
-      apiFetch(`/analitika/notifications/${id}/read/`, { method: 'PUT' }),
+    getAll: async () => {
+      const data = await apiFetch('/analitika/notifications')
+      return Array.isArray(data) ? data : []
+    },
+    getUnreadCount: async () => {
+      const res = await apiFetch('/analitika/notifications/unread-count')
+      return num(res?.count)
+    },
+    markAsRead: (id) => apiFetch(`/analitika/notifications/${id}/read`, { method: 'PUT' }),
   },
 
-  // Empresas
   companies: {
-    getAll: () => apiFetch('/analitika/companies'),
-    getById: (id) => apiFetch(`/analitika/companies/${id}`),
-    getManagements: async (companyId) => {
-      try {
-        const res = await apiFetch(`/analitika/companies/${companyId}/managements`);
-        if (Array.isArray(res) && res.length > 0) return res;
-      } catch {
-        // Fallback al endpoint filtrado de personas
-      }
-      try {
-        const persons = await apiFetch(`/analitika/persons/?id_company=${companyId}`);
-        if (Array.isArray(persons)) {
-          return persons.filter(p => Number(p.id_role) === 3 || p.role === 'manager' || p.role === 'management');
-        }
-      } catch {
-        // Fallback silencioso
-      }
-      return [];
+    getAll: async () => {
+      const data = await apiFetch('/analitika/companies')
+      return Array.isArray(data) ? data : []
     },
   },
 
-  // Personas
   persons: {
-    getAll: () => apiFetch('/analitika/persons'),
-    updateRole: async (id, id_role) => {
-      try {
-        return await apiFetch(`/analitika/persons/${id}/role/`, {
-          method: 'PATCH',
-          body: JSON.stringify({ id_role }),
-        });
-      } catch {
-        return await apiFetch(`/analitika/persons/${id}/`, {
-          method: 'PUT',
-          body: JSON.stringify({ id_role }),
-        });
-      }
+    getAll: async () => {
+      const data = await apiFetch('/analitika/persons')
+      return Array.isArray(data) ? data : []
     },
-    create: (payload) =>
-      apiFetch('/analitika/persons/', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
-    delete: (id) =>
-      apiFetch(`/analitika/persons/${id}`, {
-        method: 'DELETE',
-      }),
+    /** Body: { name, email, phone? }. Devuelve { ok, id_person }. */
+    create: (payload) => apiFetch('/analitika/persons', json('POST', payload)),
   },
 
-  // Módulo de Administración (Super Admin)
+  users: {
+    /** Usuarios de las empresas del usuario actual (incluye name, email, id_role). */
+    getAll: async () => {
+      const data = await apiFetch('/analitika/users')
+      return Array.isArray(data) ? data : []
+    },
+    /** Body: { id_person, id_company, id_role, password_hash } — el backend hashea la contraseña. */
+    create: (payload) => apiFetch('/analitika/users', json('POST', payload)),
+    remove: (id) => apiFetch(`/analitika/users/${id}`, { method: 'DELETE' }),
+    /**
+     * Cambio de contraseña (Owner / Super Admin). El backend exige el registro completo
+     * de users; `password_hash` recibe la contraseña en claro y el servicio la hashea con bcrypt.
+     */
+    changePassword: (user, newPassword) =>
+      apiFetch(`/analitika/users/${user.id_user}`, json('PUT', {
+        id_person: user.id_person,
+        id_role: user.id_role,
+        password_hash: newPassword,
+      })),
+  },
+
   admin: {
-    getCompanies: () => apiFetch('/analitika/admin/companies'),
-    getUsersByRole: () => apiFetch('/analitika/admin/users-by-role'),
-    updateUserRole: async (idUser, idRole) => {
-      return apiFetch(`/analitika/admin/users/${idUser}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ id_role: idRole }),
-      });
+    getCompanies: async () => {
+      const data = await apiFetch('/analitika/admin/companies')
+      return Array.isArray(data) ? data : []
     },
+    getUsersByRole: (idCompany) =>
+      apiFetch(`/analitika/admin/users-by-role${idCompany != null ? `?id_company=${idCompany}` : ''}`),
+    updateUserRole: (idUser, idRole) =>
+      apiFetch(`/analitika/admin/users/${idUser}/role`, json('PUT', { id_role: idRole })),
   },
-};
+}
 
-export default api;
+export default api

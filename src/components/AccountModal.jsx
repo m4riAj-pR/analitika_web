@@ -1,82 +1,52 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { api } from '../services/api'
+import { roleLabel } from '../lib/format'
+import { IconBuilding, IconClose } from './ui/Icons'
 
 export default function AccountModal({ isOpen, onClose, user, onUpdateUser, onLogout }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    company: '',
-    newPassword: '',
-  })
+  // El modal se monta al abrirse (ver DashboardShell), así el formulario parte de los datos actuales
+  const [form, setForm] = useState(() => ({
+    name: user?.name || '', email: user?.email || '', phone: user?.phone || '', newPassword: '', confirmPassword: '',
+  }))
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    if (user) {
-      setFormData({
-        name: [user.name || user.nombre, user.last_name || user.apellido].filter(Boolean).join(' ').trim() || '',
-        email: user.email || '',
-        phone: user.phone || user.telefono || '',
-        company: user.company || user.empresa || '',
-        newPassword: '',
-      })
-      setSuccess('')
-      setError('')
-    }
-  }, [user, isOpen])
+  // El backend solo permite editar persons y users a Owner (2) y Super Admin (1)
+  const canEdit = user?.id_role === 1 || user?.id_role === 2
 
   if (!isOpen) return null
 
-  const getRoleLabel = (roleId) => {
-    switch (roleId) {
-      case 1: return 'Super Admin'
-      case 2: return 'Owner (Propietario)'
-      case 3: return 'Manager (Gestor)'
-      default: return 'Usuario'
-    }
-  }
-
-  const initials = ((formData.name || formData.email || 'U'))
-    .split(' ')
-    .map(w => w[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
-
-  const handleChange = (e) => {
-    const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
+  const companies = user?.companies || []
+  const initials = (form.name || form.email || 'U').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase()
+  const onChange = (e) => setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setLoading(true)
     setError('')
     setSuccess('')
-
+    if (form.newPassword && form.newPassword.length < 8) {
+      setError('La nueva contraseña debe tener al menos 8 caracteres.')
+      return
+    }
+    if (form.newPassword !== form.confirmPassword) {
+      setError('Las contraseñas no coinciden.')
+      return
+    }
+    if (!user?.id_person) {
+      setError('No se encontró el identificador de tu perfil. Cierra sesión y vuelve a ingresar.')
+      return
+    }
+    setLoading(true)
     try {
-      const payload = {
-        name: formData.name.trim(),
-        email: formData.email.trim(),
-        phone: formData.phone.trim(),
-      }
-
-      if (formData.newPassword) {
-        payload.password = formData.newPassword
-      }
-
-      const updated = await api.auth.updateProfile(payload)
-      if (onUpdateUser) {
-        onUpdateUser(updated)
-      }
-      setSuccess('¡Información personal actualizada con éxito!')
-      setTimeout(() => {
-        onClose()
-      }, 1200)
+      const payload = { name: form.name.trim(), email: form.email.trim(), phone: form.phone.trim() }
+      await api.auth.updateProfile(user.id_person, payload)
+      if (form.newPassword) await api.users.changePassword(user, form.newPassword)
+      onUpdateUser?.(payload)
+      setSuccess(form.newPassword ? 'Perfil y contraseña actualizados.' : 'Perfil actualizado.')
+      setForm(prev => ({ ...prev, newPassword: '', confirmPassword: '' }))
     } catch (err) {
-      setError(err.message || 'Error al actualizar información personal.')
+      setError(err.message || 'No fue posible actualizar el perfil.')
     } finally {
       setLoading(false)
     }
@@ -85,139 +55,92 @@ export default function AccountModal({ isOpen, onClose, user, onUpdateUser, onLo
   return (
     <div className="modal-backdrop" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="modal-account-title">
       <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
         <div className="modal-header">
           <div>
-            <h2 id="modal-account-title" className="modal-title">Mi Cuenta</h2>
-            <p className="modal-subtitle">Edita y actualiza tu información personal</p>
+            <h2 id="modal-account-title" className="modal-title">Mi cuenta</h2>
+            <p className="modal-subtitle">Información personal y empresa asociada</p>
           </div>
-          <button className="modal-close-btn" onClick={onClose} aria-label="Cerrar modal">
-            ✕
+          <button className="modal-close-btn" onClick={onClose} aria-label="Cerrar">
+            <IconClose size={16} />
           </button>
         </div>
 
-        {/* User Card Profile Header */}
         <div className="account-preview-card">
-          <div className="account-avatar-large">
-            {initials}
-          </div>
+          <div className="account-avatar-large">{initials}</div>
           <div className="account-preview-info">
-            <h3 className="account-preview-name">{formData.name || 'Sin nombre asignado'}</h3>
-            <p className="account-preview-email">{formData.email}</p>
+            <h3 className="account-preview-name">{form.name || 'Sin nombre'}</h3>
+            <p className="account-preview-email">{form.email}</p>
             <div className="account-preview-badges">
-              <span className="badge badge-primary">
-                {getRoleLabel(user?.id_role)}
-              </span>
-              {formData.company && (
-                <span className="badge badge-neutral">
-                  {formData.company}
-                </span>
-              )}
+              <span className="badge badge-primary">{roleLabel(user?.id_role)}</span>
             </div>
           </div>
         </div>
 
-        {/* Notifications / Alerts */}
-        {success && (
-          <div className="alert-message alert-success">
-            {success}
-          </div>
-        )}
-        {error && (
-          <div className="alert-message alert-error">
-            {error}
+        <div className="account-companies">
+          <span className="account-section-label">Empresa{companies.length > 1 ? 's' : ''}</span>
+          {companies.length === 0 ? (
+            <p className="account-company-empty">
+              {user?.id_role === 1 ? 'Acceso global a todas las empresas.' : 'Tu usuario no tiene una empresa asignada.'}
+            </p>
+          ) : (
+            <ul>
+              {companies.map(c => (
+                <li key={c.id_company}>
+                  <IconBuilding size={16} />
+                  <span>{c.name}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {success && <div className="alert-message alert-success" role="status">{success}</div>}
+        {error && <div className="alert-message alert-error" role="alert">{error}</div>}
+        {!canEdit && (
+          <div className="alert-message alert-info">
+            Tu rol no tiene permiso para editar el perfil. Solicita los cambios al Owner de tu empresa.
           </div>
         )}
 
-        {/* Formulario */}
         <form onSubmit={handleSubmit} className="account-form">
-          <div className="form-group" style={{ marginBottom: 14 }}>
-            <label htmlFor="account-name">Nombre Completo</label>
-            <input
-              id="account-name"
-              name="name"
-              type="text"
-              className="input-control"
-              placeholder="Ej. Juan Pérez"
-              value={formData.name}
-              onChange={handleChange}
-              required
-            />
-          </div>
-
-          <div className="form-row-2">
+          <fieldset disabled={!canEdit || loading} style={{ border: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div className="form-group">
-              <label htmlFor="account-email">Correo Electrónico</label>
-              <input
-                id="account-email"
-                name="email"
-                type="email"
-                className="input-control"
-                placeholder="usuario@ejemplo.com"
-                value={formData.email}
-                onChange={handleChange}
-                required
-              />
+              <label htmlFor="account-name">Nombre completo</label>
+              <input id="account-name" name="name" className="input-control" value={form.name} onChange={onChange} required />
             </div>
-            <div className="form-group">
-              <label htmlFor="account-phone">Teléfono / Celular</label>
-              <input
-                id="account-phone"
-                name="phone"
-                type="tel"
-                className="input-control"
-                placeholder="+57 300 123 4567"
-                value={formData.phone}
-                onChange={handleChange}
-              />
+            <div className="form-row-2">
+              <div className="form-group">
+                <label htmlFor="account-email">Correo electrónico</label>
+                <input id="account-email" name="email" type="email" className="input-control" value={form.email} onChange={onChange} required />
+              </div>
+              <div className="form-group">
+                <label htmlFor="account-phone">Teléfono</label>
+                <input id="account-phone" name="phone" type="tel" className="input-control" value={form.phone} onChange={onChange} />
+              </div>
             </div>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="account-new-password">
-              Nueva Contraseña <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(opcional)</span>
-            </label>
-            <input
-              id="account-new-password"
-              name="newPassword"
-              type="password"
-              className="input-control"
-              placeholder="Deja en blanco para conservar tu contraseña actual"
-              value={formData.newPassword}
-              onChange={handleChange}
-            />
-          </div>
+            <div className="form-row-2">
+              <div className="form-group">
+                <label htmlFor="account-new-password">Nueva contraseña <span className="label-hint">(opcional)</span></label>
+                <input id="account-new-password" name="newPassword" type="password" className="input-control" value={form.newPassword} onChange={onChange} autoComplete="new-password" />
+              </div>
+              <div className="form-group">
+                <label htmlFor="account-confirm-password">Confirmar contraseña</label>
+                <input id="account-confirm-password" name="confirmPassword" type="password" className="input-control" value={form.confirmPassword} onChange={onChange} autoComplete="new-password" />
+              </div>
+            </div>
+          </fieldset>
 
           <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
-            {onLogout ? (
-              <button
-                type="button"
-                className="btn-cancel"
-                onClick={() => { onClose(); onLogout(); }}
-                style={{ color: 'var(--color-danger)', borderColor: 'rgba(220, 38, 38, 0.3)' }}
-                id="modal-logout-btn"
-              >
-                Cerrar sesión
-              </button>
-            ) : <div />}
-
+            <button type="button" className="btn-cancel btn-danger-outline" onClick={() => { onClose(); onLogout?.() }}>
+              Cerrar sesión
+            </button>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                type="button"
-                className="btn-cancel"
-                onClick={onClose}
-                disabled={loading}
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={loading}
-                id="save-account-btn"
-              >
-                {loading ? 'Guardando...' : 'Guardar Cambios'}
-              </button>
+              <button type="button" className="btn-cancel" onClick={onClose} disabled={loading}>Cerrar</button>
+              {canEdit && (
+                <button type="submit" className="btn-primary" disabled={loading}>
+                  {loading ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+              )}
             </div>
           </div>
         </form>

@@ -107,7 +107,7 @@ export default function Register({ onLogin }) {
             onClick={toggleLang}
             title={isES ? 'Switch to English' : 'Cambiar a Español'}
           >
-            ▼ {lang}
+            {lang}
           </button>
         </div>
       </nav>

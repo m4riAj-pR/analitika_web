@@ -1,88 +1,71 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import AdminPanel from './pages/AdminPanel'
 import ProtectedRoute from './components/ProtectedRoute'
-import { api } from './services/api'
+import { api, normalizeUser, onUnauthorized } from './services/api'
 import './global.css'
 
-export default function App() {
-  const [user, setUser] = useState(api.auth.getUser())
+const homeRoute = (user) => (!user ? '/' : user.id_role === 1 ? '/admin' : '/dashboard')
 
-  // Sincronizar usuario desde localStorage al cargar (por si hay token guardado)
-  useEffect(() => {
-    const storedUser = api.auth.getUser()
-    if (storedUser && !user) {
-      setUser(storedUser)
-    }
+export default function App() {
+  const [user, setUser] = useState(() => (api.auth.getToken() ? api.auth.getUser() : null))
+
+  const persistUser = useCallback((u) => {
+    const normalized = normalizeUser(u)
+    if (normalized) api.auth.saveUser(normalized)
+    setUser(normalized)
+    return normalized
   }, [])
+
+  const handleLogout = useCallback(() => {
+    api.auth.logout()
+    setUser(null)
+  }, [])
+
+  // Un 401 con token guardado significa sesión vencida: se cierra la sesión.
+  useEffect(() => {
+    onUnauthorized(handleLogout)
+    return () => onUnauthorized(null)
+  }, [handleLogout])
+
+  // Al abrir la app con una sesión guardada se refresca el perfil desde /me,
+  // que es la fuente de verdad de rol y empresas (nombre de la empresa incluido).
+  useEffect(() => {
+    if (!api.auth.getToken()) return
+    api.auth.me()
+      .then(me => setUser(prev => persistUser({ ...prev, ...me })))
+      .catch(() => { /* 401 ya se maneja con onUnauthorized; otros errores conservan la sesión local */ })
+  }, [persistUser])
 
   const handleLogin = async (email, password) => {
     const res = await api.auth.login(email, password)
-    // La respuesta puede venir como { user: {...} } o directamente el usuario
-    const userData = res.user || res
-    if (userData) {
-      // Si el backend no devuelve id_role en el login, intentamos obtenerlo desde /me
-      if (userData.id_role == null && userData.email) {
-        try {
-          const me = await api.auth.me()
-          const fullUser = { ...userData, ...me }
-          localStorage.setItem('user', JSON.stringify(fullUser))
-          setUser(fullUser)
-          return res
-        } catch {
-          // Continuar con lo que tenemos
-        }
-      }
-      setUser(userData)
-    }
+    let next = normalizeUser(res?.user)
+    try {
+      const me = await api.auth.me()
+      next = { ...next, ...me }
+    } catch { /* el login ya trae rol y empresas */ }
+    persistUser(next)
     return res
   }
 
-  const handleLogout = () => {
-    api.auth.logout()
-    setUser(null)
-  }
-
-  const handleUpdateUser = (updatedData) => {
-    const updated = { ...user, ...updatedData }
-    localStorage.setItem('user', JSON.stringify(updated))
-    setUser(updated)
-  }
-
-  // Determina la ruta home según el rol
-  const homeRoute = () => {
-    if (!user) return '/'
-    if (user.id_role === 1) return '/admin'
-    return '/dashboard'
-  }
+  const handleUpdateUser = (updatedData) => persistUser({ ...user, ...updatedData })
 
   return (
     <BrowserRouter>
       <Routes>
-        {/* ── Ruta de login ── */}
         <Route
           path="/"
-          element={
-            user
-              ? <Navigate to={homeRoute()} replace />
-              : <Login onLogin={handleLogin} />
-          }
+          element={user ? <Navigate to={homeRoute(user)} replace /> : <Login onLogin={handleLogin} />}
         />
-
-        {/* ── Ruta de registro ── */}
         <Route
           path="/register"
-          element={
-            user
-              ? <Navigate to={homeRoute()} replace />
-              : <Register onLogin={handleLogin} />
-          }
+          element={user ? <Navigate to={homeRoute(user)} replace /> : <Register onLogin={handleLogin} />}
         />
 
-        {/* ── Dashboard — Owner (id_role=2) y Manager (id_role=3) ── */}
+        {/* Owner (2) y Manager (3) */}
         <Route
           path="/dashboard/*"
           element={
@@ -92,7 +75,7 @@ export default function App() {
           }
         />
 
-        {/* ── Admin Panel — Super Admin (id_role=1) únicamente ── */}
+        {/* Super Admin (1) */}
         <Route
           path="/admin/*"
           element={
@@ -102,8 +85,7 @@ export default function App() {
           }
         />
 
-        {/* ── Catch-all: redirige a ruta home del rol ── */}
-        <Route path="*" element={<Navigate to={homeRoute()} replace />} />
+        <Route path="*" element={<Navigate to={homeRoute(user)} replace />} />
       </Routes>
     </BrowserRouter>
   )

@@ -1,368 +1,172 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../services/api'
-import { IconCampaign, IconLink, IconShield, IconConnect } from './DashboardShell'
+import { api, trackingUrl } from '../services/api'
+import { PageHeader } from './ui'
+import { IconCheck, IconCopy, IconArrowRight } from './ui/Icons'
 
+// Canales de difusión. El nombre se registra en /analitika/channels y el backend
+// lo usa para generar utm_source en el link de seguimiento.
 const CHANNELS = [
-  { id: 'meta_ads', name: 'Meta Ads (Facebook & Instagram)', tag: 'META', desc: 'Anuncios en feed, stories y reels de Meta' },
-  { id: 'google_ads', name: 'Google Ads', tag: 'GOOGLE', desc: 'Búsqueda, Display y YouTube Ads' },
-  { id: 'tiktok_ads', name: 'TikTok Ads', tag: 'TIKTOK', desc: 'Pauta en video de formato vertical' },
-  { id: 'whatsapp', name: 'WhatsApp Business', tag: 'WSP', desc: 'Enlaces directos a chat y mensajería' },
-  { id: 'email', name: 'Email Marketing', tag: 'EMAIL', desc: 'Boletines y secuencias de correo' },
-  { id: 'organic', name: 'Orgánico / Social Media', tag: 'WEB', desc: 'Tráfico orgánico en redes y web' },
+  { id: 'google', name: 'Google Ads', desc: 'Búsqueda, Display y YouTube' },
+  { id: 'tiktok', name: 'TikTok Ads', desc: 'Video vertical' },
+  { id: 'email', name: 'Email', desc: 'Boletines y secuencias' },
+  { id: 'whatsapp', name: 'WhatsApp', desc: 'Mensajería directa' },
+  { id: 'organic', name: 'Orgánico', desc: 'Redes y sitio web' },
 ]
 
 const STATUSES = [
-  { id: 'active', label: 'Activa', desc: 'En ejecución y recolectando datos', badgeClass: 'badge-success' },
-  { id: 'draft', label: 'Borrador', desc: 'Guardada pero sin publicar pauta', badgeClass: 'badge-neutral' },
-  { id: 'paused', label: 'Pausada', desc: 'Detenida temporalmente', badgeClass: 'badge-warn' },
-  { id: 'finished', label: 'Finalizada', desc: 'Campana completada', badgeClass: 'badge-neutral' },
+  { id: 'active', label: 'Activa' },
+  { id: 'draft', label: 'Borrador' },
+  { id: 'paused', label: 'Pausada' },
 ]
 
-export default function CrearCampanaForm({ user, initialData = null, isEdit = false }) {
+const STEPS = ['Creando campaña', 'Registrando canal', 'Generando link de seguimiento']
+
+const parseAmount = (v) => {
+  if (!String(v).trim()) return 0
+  const n = Number(String(v).trim().replace(/\s/g, '').replace(',', '.'))
+  return Number.isFinite(n) && n >= 0 ? n : NaN
+}
+
+export default function CrearCampanaForm({ user }) {
   const navigate = useNavigate()
-  const isOwnerOrAdmin = user?.id_role === 1 || user?.id_role === 2
+  const isOwner = user?.id_role === 1 || user?.id_role === 2
+  const companies = user?.companies || []
+  const today = new Date().toISOString().slice(0, 10)
 
-  // 1. Contexto de Empresa (Multi-tenancy)
-  const [companies, setCompanies] = useState([])
-  const [selectedCompanyId, setSelectedCompanyId] = useState(
-    user?.id_company || user?.company_id || user?.companies?.[0]?.id || user?.companies?.[0] || ''
-  )
-  const [companyError, setCompanyError] = useState('')
+  const [form, setForm] = useState({
+    id_company: companies[0]?.id_company ?? '',
+    name: '',
+    description: '',
+    status: 'active',
+    start_date: today,
+    end_date: '',
+    budget: '',
+    spent: '',
+    channel: 'google',
+    destination: '',
+  })
+  const [step, setStep] = useState(-1)
+  const [error, setError] = useState('')
+  const [result, setResult] = useState(null)
+  const [copied, setCopied] = useState(false)
 
-  // 2. Form state
-  const [name, setName] = useState(initialData?.name || '')
-  const [spent, setSpent] = useState(initialData?.spent != null ? String(initialData?.spent) : '')
-  const [status, setStatus] = useState(initialData?.status || 'active')
-  const [startDate, setStartDate] = useState(
-    initialData?.start_date ? initialData.start_date.substring(0, 10) : new Date().toISOString().substring(0, 10)
-  )
-  const [endDate, setEndDate] = useState(
-    initialData?.end_date ? initialData.end_date.substring(0, 10) : ''
-  )
-  const [channel, setChannel] = useState(initialData?.channel || 'meta_ads')
-  const [channelDesc, setChannelDesc] = useState(initialData?.channel_desc || '')
-  const [targetUrl, setTargetUrl] = useState(initialData?.target_url || 'https://analitika.com/landing')
+  const set = (k) => (e) => setForm(prev => ({ ...prev, [k]: e.target.value }))
+  const running = step >= 0 && !result
 
-  // 3. Meta Ads Integration State (Solo Owner/Admin)
-  const [adConnections, setAdConnections] = useState([])
-  const [externalCampaigns, setExternalCampaigns] = useState([])
-  const [selectedMetaCampaignId, setSelectedMetaCampaignId] = useState('')
-  const [loadingMetaCampaigns, setLoadingMetaCampaigns] = useState(false)
-  const [syncMetaAds, setSyncMetaAds] = useState(true)
-
-  // 4. Pipeline Execution State
-  const [executing, setExecuting] = useState(false)
-  const [currentStep, setCurrentStep] = useState(0) // 1..5
-  const [stepLabel, setStepLabel] = useState('')
-  const [errorMsg, setErrorMsg] = useState('')
-  const [createdResult, setCreatedResult] = useState(null)
-  const [copiedLink, setCopiedLink] = useState(false)
-
-  // Carga de empresas (para Super Admin o resolución de fallback)
-  useEffect(() => {
-    let isMounted = true
-    api.companies.getAll()
-      .then(data => {
-        if (!isMounted) return
-        const list = Array.isArray(data) ? data : []
-        setCompanies(list)
-        if (!selectedCompanyId && list.length > 0) {
-          // Si es Super Admin o no hay empresa directa, fallback a la primera
-          setSelectedCompanyId(list[0].id)
-        }
-      })
-      .catch(() => {})
-    return () => { isMounted = false }
-  }, [selectedCompanyId])
-
-  // Validación de empresa
-  useEffect(() => {
-    if (!selectedCompanyId && companies.length === 0 && !user?.id_company && !user?.company_id) {
-      setCompanyError('No se encontró una empresa asociada a tu sesión. La campaña requiere una empresa obligatoria.')
-    } else {
-      setCompanyError('')
+  const validate = () => {
+    const year = new Date().getFullYear()
+    if (!form.id_company) return 'Tu usuario no tiene una empresa asignada; no es posible crear campañas.'
+    if (!form.name.trim()) return 'El nombre de la campaña es obligatorio.'
+    if (!form.start_date) return 'Selecciona la fecha de inicio.'
+    const sy = Number(form.start_date.slice(0, 4))
+    if (sy < year || sy > year + 1) return `La fecha de inicio debe estar en ${year} o ${year + 1}.`
+    if (form.end_date && form.end_date < form.start_date) return 'La fecha de fin no puede ser anterior a la de inicio.'
+    if (Number.isNaN(parseAmount(form.budget))) return 'El presupuesto debe ser un número mayor o igual a cero.'
+    if (Number.isNaN(parseAmount(form.spent))) return 'La inversión ejecutada debe ser un número mayor o igual a cero.'
+    try {
+      const u = new URL(form.destination.trim())
+      if (!/^https?:$/.test(u.protocol)) throw new Error()
+    } catch {
+      return 'La URL de destino debe ser una dirección válida que empiece por http:// o https://'
     }
-  }, [selectedCompanyId, companies, user])
-
-  // Cargar cuentas de Meta Ads si es Owner/Admin y canal es Meta
-  useEffect(() => {
-    if (isOwnerOrAdmin && channel === 'meta_ads' && selectedCompanyId) {
-      api.adConnections.getActive(selectedCompanyId)
-        .then(accounts => {
-          setAdConnections(accounts)
-          if (accounts.length > 0) {
-            setLoadingMetaCampaigns(true)
-            api.adConnections.getExternalCampaigns(accounts[0].account_id)
-              .then(camps => {
-                setExternalCampaigns(camps)
-                if (camps.length > 0) {
-                  setSelectedMetaCampaignId(camps[0].id)
-                }
-              })
-              .finally(() => setLoadingMetaCampaigns(false))
-          }
-        })
-        .catch(() => {})
-    }
-  }, [isOwnerOrAdmin, channel, selectedCompanyId])
-
-  // Reglas de Temporalidad (Validación de años)
-  const validateDates = () => {
-    const currentYear = new Date().getFullYear()
-
-    if (!startDate) {
-      return 'Debes seleccionar una fecha de inicio.'
-    }
-
-    const startYear = parseInt(startDate.split('-')[0], 10)
-    if (isNaN(startYear) || startYear < currentYear) {
-      return `La fecha de inicio no puede ser anterior al año en curso (${currentYear}).`
-    }
-    if (startYear > currentYear + 1) {
-      return `La fecha de inicio no puede superar el año siguiente (${currentYear + 1}).`
-    }
-
-    if (endDate) {
-      const endYear = parseInt(endDate.split('-')[0], 10)
-      if (isNaN(endYear) || endYear < currentYear) {
-        return `La fecha de fin no puede ser anterior al año en curso (${currentYear}).`
-      }
-      if (endYear > currentYear + 1) {
-        return `La fecha de fin no puede superar el año siguiente (${currentYear + 1}).`
-      }
-      if (new Date(endDate) < new Date(startDate)) {
-        return 'La fecha de fin debe ser posterior o igual a la fecha de inicio.'
-      }
-    }
-
     return null
   }
 
-  // Pipeline de Creación en Cascada
-  const handleCreate = async (e) => {
+  /** Busca el canal por nombre; si no existe y el rol lo permite, lo crea. */
+  const resolveChannel = async (name) => {
+    const find = (list) => list.find(c => (c.name || '').trim().toLowerCase() === name.toLowerCase())
+    const existing = find(await api.channels.getAll())
+    if (existing) return existing.id_channel
+    if (!isOwner) return null
+    await api.channels.create({ name, description: `Canal ${name}` })
+    return find(await api.channels.getAll())?.id_channel ?? null
+  }
+
+  const submit = async (e) => {
     e.preventDefault()
-    setErrorMsg('')
+    const v = validate()
+    if (v) { setError(v); return }
+    setError('')
 
-    // Validación 1: Nombre
-    if (!name.trim()) {
-      setErrorMsg('El nombre de la campaña es obligatorio.')
-      return
-    }
-
-    // Validación 2: Empresa
-    const companyIdToUse = selectedCompanyId || companies[0]?.id
-    if (!companyIdToUse) {
-      setErrorMsg('No se ha podido asociar la campaña a ninguna empresa identificable.')
-      return
-    }
-
-    // Validación 3: Temporalidad
-    const dateError = validateDates()
-    if (dateError) {
-      setErrorMsg(dateError)
-      return
-    }
-
-    // Normalización de presupuesto (comas a puntos decimales)
-    let parsedSpent = null
-    if (spent.trim()) {
-      const normalized = spent.trim().replace(',', '.')
-      const num = parseFloat(normalized)
-      if (isNaN(num) || num < 0) {
-        setErrorMsg('El presupuesto debe ser un número válido mayor o igual a cero.')
-        return
-      }
-      parsedSpent = num
-    }
-
-    setExecuting(true)
-
+    const channel = CHANNELS.find(c => c.id === form.channel)
+    let idCampaign = null
+    let current = 0
+    const go = (i) => { current = i; setStep(i) }
     try {
-      // ── FASE 1 & 2: Crear o Actualizar Campaña ──
-      setCurrentStep(1)
-      setStepLabel(isEdit ? 'Actualizando datos de la campaña...' : '1. Creando campaña en la base de datos...')
+      go(0)
+      const created = await api.campaigns.create({
+        id_company: Number(form.id_company),
+        name: form.name.trim(),
+        description: form.description.trim() || null,
+        status: form.status,
+        start_date: form.start_date,
+        end_date: form.end_date || null,
+        budget: parseAmount(form.budget),
+        spent: parseAmount(form.spent),
+      })
+      idCampaign = created?.id_campaign
+      if (!idCampaign) throw new Error('El servidor no devolvió el identificador de la campaña.')
 
-      const campaignPayload = {
-        name: name.trim(),
-        spent: parsedSpent,
-        status,
-        start_date: startDate,
-        end_date: endDate || null,
-        id_company: companyIdToUse,
-      }
+      go(1)
+      const idChannel = await resolveChannel(channel.name)
 
-      let campaignRes
-      let campaignId
-
-      if (isEdit && initialData?.id) {
-        campaignRes = await api.campaigns.update(initialData.id, campaignPayload)
-        campaignId = initialData.id
-      } else {
-        campaignRes = await api.campaigns.create(campaignPayload)
-        // Obtener id_campaign del backend o fallback por nombre
-        campaignId = campaignRes?.id || campaignRes?.id_campaign
-
-        if (!campaignId) {
-          // Fallback: buscar la campaña recién creada por nombre y empresa
-          try {
-            const allCamps = await api.campaigns.getAll()
-            const match = allCamps.find(c => c.name === campaignPayload.name && (c.id_company === companyIdToUse || !c.id_company))
-            campaignId = match ? match.id : Date.now()
-          } catch {
-            campaignId = Date.now()
-          }
-        }
-      }
-
-      // ── FASE 3: Registrar Canal de Difusión ──
-      setCurrentStep(2)
-      setStepLabel('2. Registrando canal de difusión asociado...')
-      const selectedChannelObj = CHANNELS.find(c => c.id === channel)
-      await api.channels.createChannel({
-        id_campaign: campaignId,
-        channel: channel,
-        channel_name: selectedChannelObj?.name || channel,
-        description: channelDesc.trim() || `Difusión principal mediante ${selectedChannelObj?.name}`,
-        target_url: targetUrl.trim(),
+      go(2)
+      const link = await api.trackingLinks.create({
+        id_campaign: idCampaign,
+        id_channel: idChannel,
+        destination: form.destination.trim(),
       })
 
-      // ── FASE 4: Generación Automática del Tracking Link ──
-      setCurrentStep(3)
-      setStepLabel('3. Generando Tracking Link automático y parámetros UTM...')
-      const trackingLinkRes = await api.trackingLinks.create({
-        id_campaign: campaignId,
-        destination_url: targetUrl.trim(),
-        utm_source: channel,
-        utm_medium: 'cpc',
-        utm_campaign: name.trim().toLowerCase().replace(/\s+/g, '_'),
-      })
-
-      // ── FASE 5: Sincronización y Mapeo Externo (Meta Ads API si aplica) ──
-      let metaMappingInfo = null
-      if (isOwnerOrAdmin && channel === 'meta_ads' && syncMetaAds && selectedMetaCampaignId) {
-        setCurrentStep(4)
-        setStepLabel('4. Vinculando con Meta Ads y sincronizando métricas...')
-        const metaCampaign = externalCampaigns.find(mc => mc.id === selectedMetaCampaignId)
-        metaMappingInfo = await api.adConnections.mapExternal(campaignId, {
-          external_campaign_id: selectedMetaCampaignId,
-          external_campaign_name: metaCampaign?.name || 'Meta Campaign',
-          account_id: adConnections[0]?.account_id || 'act_default',
-        })
-      }
-
-      // ── FASE 6: Finalización ──
-      setCurrentStep(5)
-      setStepLabel('¡Campaña y Tracking Link listos con éxito!')
-
-      setCreatedResult({
-        campaignId,
-        name: name.trim(),
-        status,
-        channel: selectedChannelObj?.name,
-        trackingLink: trackingLinkRes.publicTrackUrl,
-        destinationUrl: targetUrl.trim(),
-        metaMapped: Boolean(metaMappingInfo),
+      setResult({
+        idCampaign,
+        name: form.name.trim(),
+        channel: idChannel ? channel.name : null,
+        url: link?.id_link ? trackingUrl(link.id_link) : null,
       })
     } catch (err) {
-      setErrorMsg(err.message || 'Ocurrió un error al ejecutar el pipeline de creación de la campaña.')
-    } finally {
-      setExecuting(false)
+      setStep(-1)
+      setError(idCampaign
+        ? `La campaña se creó, pero falló el paso “${STEPS[current]}”: ${err.message}`
+        : err.message)
     }
   }
 
-  const handleCopyLink = () => {
-    if (createdResult?.trackingLink) {
-      navigator.clipboard.writeText(createdResult.trackingLink)
-      setCopiedLink(true)
-      setTimeout(() => setCopiedLink(false), 2500)
-    }
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(result.url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* sin acceso al portapapeles */ }
   }
 
-  // Si ya se creó la campaña, mostramos la pantalla de éxito con el Tracking Link
-  if (createdResult) {
+  if (result) {
     return (
-      <div className="card" style={{ width: '100%', padding: '36px 40px', animation: 'fadeIn 0.25s ease' }}>
-        <div style={{ textAlign: 'center', maxWidth: 680, margin: '0 auto' }}>
-          <div style={{
-            width: 64, height: 64, borderRadius: '50%', background: 'var(--color-success-bg)',
-            color: 'var(--color-success)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: '2rem', margin: '0 auto 16px', fontWeight: 800
-          }}>
-            ✓
-          </div>
+      <div className="page">
+        <div className="card success-card">
+          <span className="success-icon"><IconCheck size={28} /></span>
+          <h1 className="page-title">Campaña creada</h1>
+          <p className="page-subtitle">“{result.name}” quedó registrada{result.channel ? ` en el canal ${result.channel}` : ''}.</p>
 
-          <h2 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.02em', marginBottom: 6 }}>
-            ¡Campaña {isEdit ? 'Actualizada' : 'Creada'} con Éxito!
-          </h2>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem', marginBottom: 28 }}>
-            Se ha completado el pipeline de negocio: canal de difusión registrado y Tracking Link generado para medición en tiempo real.
-          </p>
-
-          {/* Bloque del Tracking Link Generado */}
-          <div style={{
-            background: 'var(--color-surface-mid)', border: '1px solid var(--color-surface-border)',
-            borderRadius: 'var(--radius-lg)', padding: '20px 24px', textAlign: 'left', marginBottom: 24
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Tracking Link Oficial
-              </span>
-              <span className="badge badge-success">Activo para atribución</span>
+          {result.url && (
+            <div className="link-box">
+              <span className="mini-title">Link de seguimiento</span>
+              <p className="chart-note" style={{ margin: '0 0 10px' }}>Usa este enlace en tus anuncios: cada visita registra un clic y redirige a tu URL de destino.</p>
+              <div className="link-cell">
+                <input readOnly value={result.url} className="input-control mono" aria-label="Link de seguimiento" onFocus={(e) => e.target.select()} />
+                <button type="button" className="btn-primary" onClick={copy}>
+                  {copied ? <><IconCheck size={16} /> Copiado</> : <><IconCopy size={16} /> Copiar</>}
+                </button>
+              </div>
             </div>
+          )}
 
-            <p style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)', marginBottom: 12 }}>
-              Usa este enlace público en tus anuncios o publicaciones para trackear clics, conversiones y ROI de forma automática:
-            </p>
-
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input
-                type="text"
-                readOnly
-                value={createdResult.trackingLink}
-                className="input-control"
-                style={{ flex: 1, fontFamily: 'monospace', fontWeight: 600, background: '#fff', fontSize: '0.88rem' }}
-              />
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={handleCopyLink}
-                style={{ padding: '0 18px', height: 40, flexShrink: 0 }}
-              >
-                {copiedLink ? 'Copiado' : 'Copiar Link'}
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', gap: 20, marginTop: 14, fontSize: '0.78rem', color: 'var(--color-text-muted)', flexWrap: 'wrap' }}>
-              <span><strong>Destino:</strong> {createdResult.destinationUrl}</span>
-              <span><strong>Canal:</strong> {createdResult.channel}</span>
-              {createdResult.metaMapped && (
-                <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
-                  Sincronizado con Meta Ads
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Acciones finales */}
-          <div style={{ display: 'flex', gap: 14, justifyContent: 'center' }}>
-            <button
-              className="btn-primary"
-              onClick={() => navigate('/dashboard/campanas')}
-              id="btn-go-to-campaigns"
-            >
-              Ver Todas las Campañas
+          <div className="success-actions">
+            <button className="btn-primary" onClick={() => navigate(`/dashboard/desglose?id=${result.idCampaign}`)}>
+              Ver desglose <IconArrowRight size={16} />
             </button>
-            <button
-              className="btn-cancel"
-              onClick={() => {
-                setCreatedResult(null)
-                setName('')
-                setSpent('')
-                setEndDate('')
-              }}
-            >
-              Crear Otra Campaña
+            <button className="btn-cancel" onClick={() => { setResult(null); setStep(-1); setForm(f => ({ ...f, name: '', description: '', destination: '' })) }}>
+              Crear otra campaña
             </button>
           </div>
         </div>
@@ -371,380 +175,99 @@ export default function CrearCampanaForm({ user, initialData = null, isEdit = fa
   }
 
   return (
-    <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Encabezado */}
-      <div>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-text)', letterSpacing: '-0.02em' }}>
-          {isEdit ? 'Editar Campaña' : 'Crear Nueva Campaña'}
-        </h1>
-        <p style={{ fontSize: '0.88rem', color: 'var(--color-text-muted)', marginTop: 4 }}>
-          Configura los parámetros comerciales, canal de difusión, link trackeable y vinculación publicitaria.
-        </p>
-      </div>
+    <div className="page page-narrow">
+      <PageHeader title="Nueva campaña" subtitle="Registra la campaña y genera su link de seguimiento en un solo paso" />
 
-      {/* Alerta de bloqueo por falta de empresa */}
-      {companyError && (
-        <div className="alert-message alert-error">
-          {companyError}
-        </div>
-      )}
+      {error && <div className="alert-message alert-error" role="alert">{error}</div>}
 
-      {/* Alerta de errores de validación */}
-      {errorMsg && (
-        <div className="alert-message alert-error">
-          {errorMsg}
-        </div>
-      )}
-
-      {/* Pipeline en ejecución */}
-      {executing && (
-        <div className="card" style={{ padding: 20, background: 'var(--color-primary-bg)', border: '1px solid var(--color-primary-light)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div className="skeleton" style={{ width: 28, height: 28, borderRadius: '50%' }} />
-            <div>
-              <p style={{ fontWeight: 700, color: 'var(--color-primary-dark)', fontSize: '0.92rem', margin: 0 }}>
-                {stepLabel}
-              </p>
-              <p style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)', margin: '2px 0 0' }}>
-                Fase {currentStep} de 5 en progreso
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-        {/* SECCIÓN 1: Contexto de Empresa y Datos Base */}
-        <div className="card" style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--color-surface-border)', paddingBottom: 12 }}>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-              1. Información General y Empresa
-            </h2>
-            <span className="badge badge-primary">Paso 1</span>
-          </div>
-
+      <form onSubmit={submit} className="form-stack">
+        <fieldset disabled={running} className="card form-section">
+          <legend className="form-section-title">Información general</legend>
           <div className="form-row-2">
-            {/* Empresa (Multi-tenancy) */}
             <div className="form-group">
-              <label htmlFor="camp-company">
-                Empresa Asociada <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </label>
-              {companies.length > 1 && user?.id_role === 1 ? (
-                <select
-                  id="camp-company"
-                  className="input-control"
-                  value={selectedCompanyId}
-                  onChange={(e) => setSelectedCompanyId(e.target.value)}
-                  required
-                >
-                  {companies.map(co => (
-                    <option key={co.id} value={co.id}>
-                      {co.name || co.nombre || `Empresa ${co.id}`}
-                    </option>
-                  ))}
+              <label htmlFor="camp-company">Empresa</label>
+              {companies.length > 1 ? (
+                <select id="camp-company" className="input-control" value={form.id_company} onChange={set('id_company')}>
+                  {companies.map(c => <option key={c.id_company} value={c.id_company}>{c.name}</option>)}
                 </select>
               ) : (
-                <input
-                  id="camp-company"
-                  type="text"
-                  readOnly
-                  disabled
-                  value={
-                    companies.find(c => c.id === selectedCompanyId)?.name ||
-                    user?.company ||
-                    (selectedCompanyId ? `Empresa ID #${selectedCompanyId}` : 'Sin empresa asociada')
-                  }
-                  className="input-control"
-                  style={{ background: 'var(--color-surface-mid)', color: 'var(--color-text)' }}
-                />
+                <input id="camp-company" className="input-control" value={companies[0]?.name || 'Sin empresa asignada'} readOnly />
               )}
-              <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
-                Toda campaña se afilia obligatoriamente a una organización del sistema.
-              </span>
             </div>
-
-            {/* Nombre de la Campaña */}
             <div className="form-group">
-              <label htmlFor="camp-name">
-                Nombre de la Campaña <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </label>
-              <input
-                id="camp-name"
-                type="text"
-                required
-                className="input-control"
-                placeholder="Ej. Promoción Primavera 2026"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
+              <label htmlFor="camp-name">Nombre <span className="req">*</span></label>
+              <input id="camp-name" className="input-control" value={form.name} onChange={set('name')} placeholder="Ej. Lanzamiento colección otoño" maxLength={120} required />
             </div>
           </div>
-
-          <div className="form-row-2">
-            {/* Presupuesto / Gasto */}
+          <div className="form-group">
+            <label htmlFor="camp-desc">Descripción <span className="label-hint">(se muestra en la página de aterrizaje)</span></label>
+            <textarea id="camp-desc" className="input-control" rows={2} value={form.description} onChange={set('description')} maxLength={500} />
+          </div>
+          <div className="form-row-3">
             <div className="form-group">
-              <label htmlFor="camp-spent">
-                Presupuesto / Inversión (Opcional)
-              </label>
-              <div style={{ position: 'relative' }}>
-                <span style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', fontWeight: 700, color: 'var(--color-text-muted)' }}>
-                  $
-                </span>
-                <input
-                  id="camp-spent"
-                  type="text"
-                  className="input-control"
-                  placeholder="Ej. 1500.00 ó 1500,00"
-                  value={spent}
-                  onChange={(e) => setSpent(e.target.value)}
-                  style={{ paddingLeft: 30 }}
-                />
-              </div>
-              <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
-                Normaliza comas y puntos decimales automáticamente.
-              </span>
-            </div>
-
-            {/* Estado de la Campaña */}
-            <div className="form-group">
-              <label htmlFor="camp-status">
-                Estado Inicial <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </label>
-              <select
-                id="camp-status"
-                className="input-control"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                {STATUSES.map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.label} ({s.desc})
-                  </option>
-                ))}
+              <label htmlFor="camp-status">Estado</label>
+              <select id="camp-status" className="input-control" value={form.status} onChange={set('status')}>
+                {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
+            <div className="form-group">
+              <label htmlFor="camp-start">Inicio <span className="req">*</span></label>
+              <input id="camp-start" type="date" className="input-control" value={form.start_date} onChange={set('start_date')} required />
+            </div>
+            <div className="form-group">
+              <label htmlFor="camp-end">Fin <span className="label-hint">(opcional)</span></label>
+              <input id="camp-end" type="date" className="input-control" value={form.end_date} min={form.start_date} onChange={set('end_date')} />
+            </div>
           </div>
-
-          {/* Temporalidad */}
           <div className="form-row-2">
             <div className="form-group">
-              <label htmlFor="camp-start-date">
-                Fecha de Inicio <span style={{ color: 'var(--color-danger)' }}>*</span>
-              </label>
-              <input
-                id="camp-start-date"
-                type="date"
-                required
-                className="input-control"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
-              <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
-                Regla de seguridad: Solo año en curso o siguiente.
-              </span>
+              <label htmlFor="camp-budget">Presupuesto total ($)</label>
+              <input id="camp-budget" inputMode="decimal" className="input-control" value={form.budget} onChange={set('budget')} placeholder="0,00" />
             </div>
-
             <div className="form-group">
-              <label htmlFor="camp-end-date">
-                Fecha de Fin (Opcional)
-              </label>
-              <input
-                id="camp-end-date"
-                type="date"
-                className="input-control"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-              />
-              <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
-                Deja en blanco para campañas continuas sin fecha de corte fija.
-              </span>
+              <label htmlFor="camp-spent">Inversión ejecutada ($)</label>
+              <input id="camp-spent" inputMode="decimal" className="input-control" value={form.spent} onChange={set('spent')} placeholder="0,00" />
+              <span className="field-hint">Se usa para calcular CPC, CPA y ROI.</span>
             </div>
           </div>
-        </div>
+        </fieldset>
 
-        {/* SECCIÓN 2: Canal de Difusión y Generación de Tracking Link */}
-        <div className="card" style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--color-surface-border)', paddingBottom: 12 }}>
-            <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-              2. Canal de Difusión y URL de Destino
-            </h2>
-            <span className="badge badge-primary">Paso 2</span>
-          </div>
-
-          {/* Selección visual de canales */}
+        <fieldset disabled={running} className="card form-section">
+          <legend className="form-section-title">Canal y destino</legend>
           <div className="form-group">
-            <label>Selecciona el Canal Principal de Difusión</label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, marginTop: 4 }}>
-              {CHANNELS.map(ch => {
-                const isSelected = channel === ch.id
-                return (
-                  <div
-                    key={ch.id}
-                    onClick={() => setChannel(ch.id)}
-                    style={{
-                      padding: '14px 16px',
-                      borderRadius: 'var(--radius-md)',
-                      border: `2px solid ${isSelected ? 'var(--color-primary)' : 'var(--color-surface-border)'}`,
-                      background: isSelected ? 'var(--color-primary-bg)' : 'var(--color-surface)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      transition: 'all var(--transition-fast)'
-                    }}
-                  >
-                    <span style={{
-                      fontSize: '0.72rem',
-                      fontWeight: 800,
-                      padding: '4px 8px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: isSelected ? 'var(--color-primary)' : 'var(--color-surface-mid)',
-                      color: isSelected ? '#fff' : 'var(--color-text-muted)',
-                      letterSpacing: '0.05em',
-                      alignSelf: 'center',
-                    }}>
-                      {ch.tag}
-                    </span>
-                    <div>
-                      <span style={{ fontWeight: 700, fontSize: '0.88rem', color: isSelected ? 'var(--color-primary-dark)' : 'var(--color-text)', display: 'block' }}>
-                        {ch.name}
-                      </span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                        {ch.desc}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* URL de Destino para el Tracking Link */}
-          <div className="form-group">
-            <label htmlFor="camp-target-url">
-              URL de Destino Final para el Tracking Link <span style={{ color: 'var(--color-danger)' }}>*</span>
-            </label>
-            <input
-              id="camp-target-url"
-              type="url"
-              required
-              className="input-control"
-              placeholder="https://tudominio.com/producto-o-landing"
-              value={targetUrl}
-              onChange={(e) => setTargetUrl(e.target.value)}
-            />
-            <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
-              El sistema generará automáticamente un enlace acortado y rastreable que redirige hacia esta URL midiendo cada clic.
-            </span>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="camp-channel-desc">Descripción o Nota del Canal (Opcional)</label>
-            <input
-              id="camp-channel-desc"
-              type="text"
-              className="input-control"
-              placeholder="Ej. Anuncios carrusel dirigidos a público 25-45 años en Meta"
-              value={channelDesc}
-              onChange={(e) => setChannelDesc(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* SECCIÓN 3: Sincronización con Meta Ads (RBAC: Owner / Admin) */}
-        {channel === 'meta_ads' && (
-          <div className="card" style={{ padding: 28, display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--color-surface-border)', paddingBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <h2 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)', margin: 0 }}>
-                  3. Integración Directa con Meta Ads
-                </h2>
-                <span className="badge badge-primary">
-                  {isOwnerOrAdmin ? 'Owner / Admin' : 'Restringido'}
-                </span>
-              </div>
-              <span className="badge badge-neutral">Paso 3</span>
-            </div>
-
-            {isOwnerOrAdmin ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={syncMetaAds}
-                    onChange={(e) => setSyncMetaAds(e.target.checked)}
-                    style={{ width: 18, height: 18, accentColor: 'var(--color-primary)' }}
-                  />
-                  <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text)' }}>
-                    Vincular y mapear con una campaña existente en Meta Ads
-                  </span>
+            <span className="label-like" id="channel-label">Canal de difusión</span>
+            <div className="choice-grid" role="radiogroup" aria-labelledby="channel-label">
+              {CHANNELS.map(c => (
+                <label key={c.id} className={`choice${form.channel === c.id ? ' selected' : ''}`}>
+                  <input type="radio" name="channel" value={c.id} checked={form.channel === c.id} onChange={set('channel')} />
+                  <span className="choice-title">{c.name}</span>
+                  <span className="choice-desc">{c.desc}</span>
                 </label>
-
-                {syncMetaAds && (
-                  <div style={{ background: 'var(--color-surface-mid)', padding: 18, borderRadius: 'var(--radius-md)', display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    <div className="form-group">
-                      <label htmlFor="meta-campaign-select">
-                        Selecciona la Campaña en Meta Ads para Sincronizar Métricas Oficiales
-                      </label>
-                      {loadingMetaCampaigns ? (
-                        <div className="skeleton" style={{ height: 40 }} />
-                      ) : externalCampaigns.length > 0 ? (
-                        <select
-                          id="meta-campaign-select"
-                          className="input-control"
-                          value={selectedMetaCampaignId}
-                          onChange={(e) => setSelectedMetaCampaignId(e.target.value)}
-                        >
-                          {externalCampaigns.map(mc => (
-                            <option key={mc.id} value={mc.id}>
-                              {mc.name} (Gasto actual: ${mc.spend} | {mc.status})
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-                          No se encontraron campañas remotas en la cuenta publicitaria conectada.
-                        </p>
-                      )}
-                      <span style={{ fontSize: '0.74rem', color: 'var(--color-text-muted)' }}>
-                        Sincronizará impresiones, alcance oficial y gasto real reportado por la API de Meta Ads.
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div style={{
-                background: 'var(--color-warn-bg)', border: '1px solid var(--color-warn)',
-                borderRadius: 'var(--radius-md)', padding: '14px 16px', color: 'var(--color-warn)',
-                fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 10
-              }}>
-                <span>
-                  <strong>Permiso Restringido (Manager):</strong> Tu rol te permite crear y administrar la campaña con su Tracking Link de medición, pero la vinculación de activos empresariales externos (Meta Ads API) está reservada para usuarios con rol <strong>Owner</strong> o <strong>Super Admin</strong>.
-                </span>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
+          <div className="form-group">
+            <label htmlFor="camp-dest">URL de destino <span className="req">*</span></label>
+            <input id="camp-dest" type="url" className="input-control" value={form.destination} onChange={set('destination')} placeholder="https://tusitio.com/landing" required />
+            <span className="field-hint">Si no incluye parámetros UTM, el servidor añade utm_source, utm_medium y utm_campaign automáticamente.</span>
+          </div>
+        </fieldset>
+
+        {running && (
+          <ol className="steps" aria-live="polite">
+            {STEPS.map((label, i) => (
+              <li key={label} className={i < step ? 'done' : i === step ? 'current' : ''}>
+                <span className="step-dot">{i < step ? <IconCheck size={12} /> : i + 1}</span>
+                {label}
+              </li>
+            ))}
+          </ol>
         )}
 
-        {/* Botones de acción */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 14 }}>
-          <button
-            type="button"
-            className="btn-cancel"
-            onClick={() => navigate('/dashboard/campanas')}
-            disabled={executing}
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            className="btn-primary"
-            disabled={executing || Boolean(companyError)}
-            id="btn-submit-campana"
-            style={{ padding: '0 28px', height: 44, fontSize: '0.92rem' }}
-          >
-            {executing ? 'Ejecutando Pipeline...' : isEdit ? 'Guardar Cambios' : 'Crear Campaña y Generar Link'}
+        <div className="form-actions">
+          <button type="button" className="btn-cancel" onClick={() => navigate('/dashboard/campanas')} disabled={running}>Cancelar</button>
+          <button type="submit" className="btn-primary" disabled={running || companies.length === 0}>
+            {running ? 'Creando…' : 'Crear campaña'}
           </button>
         </div>
       </form>
