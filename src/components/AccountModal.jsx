@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 
-export default function AccountModal({ isOpen, onClose, user, onUpdateUser }) {
+export default function AccountModal({ isOpen, onClose, user, onUpdateUser, onLogout }) {
   const [formData, setFormData] = useState({
     name: '',
     last_name: '',
@@ -205,23 +205,37 @@ export default function AccountModal({ isOpen, onClose, user, onUpdateUser }) {
             />
           </div>
 
-          <div className="modal-actions">
-            <button
-              type="button"
-              className="btn-cancel"
-              onClick={onClose}
-              disabled={loading}
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={loading}
-              id="save-account-btn"
-            >
-              {loading ? 'Guardando...' : 'Guardar Cambios'}
-            </button>
+          <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
+            {onLogout ? (
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={() => { onClose(); onLogout(); }}
+                style={{ color: 'var(--color-danger)', borderColor: 'rgba(220, 38, 38, 0.3)' }}
+                id="modal-logout-btn"
+              >
+                Cerrar sesión
+              </button>
+            ) : <div />}
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                className="btn-cancel"
+                onClick={onClose}
+                disabled={loading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={loading}
+                id="save-account-btn"
+              >
+                {loading ? 'Guardando...' : 'Guardar Cambios'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

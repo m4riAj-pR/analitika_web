@@ -1,14 +1,41 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import logo from '../assets/logo_web.png'
 import AccountModal from './AccountModal'
 import NotificationsDropdown from './NotificationsDropdown'
+import { api } from '../services/api'
 
 export default function DashboardShell({ sidebarItems, tabs, user, onLogout, onUpdateUser, children }) {
   const navigate = useNavigate()
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
+  const [showSearchModal, setShowSearchModal] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [campaignsList, setCampaignsList] = useState([])
   const [unreadCount, setUnreadCount] = useState(3)
+
+  // Cargar campañas para búsqueda rápida si es Owner/Manager
+  useEffect(() => {
+    if (user?.id_role === 2 || user?.id_role === 3) {
+      api.campaigns.getAll()
+        .then(data => setCampaignsList(Array.isArray(data) ? data : []))
+        .catch(() => {})
+    }
+  }, [user])
+
+  // Atajo de teclado: Ctrl+K / Cmd+K para abrir búsqueda
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowSearchModal(prev => !prev)
+      } else if (e.key === 'Escape') {
+        setShowSearchModal(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   const initials = (user?.name || user?.email || 'U')
     .split(' ')
@@ -16,6 +43,38 @@ export default function DashboardShell({ sidebarItems, tabs, user, onLogout, onU
     .join('')
     .slice(0, 2)
     .toUpperCase()
+
+  // Items buscables
+  const navSuggestions = (sidebarItems || []).map(item => ({
+    type: 'Página',
+    title: item.label,
+    subtitle: `Ir a ${item.label}`,
+    to: item.to,
+  }))
+
+  const campaignSuggestions = campaignsList.map(c => ({
+    type: 'Campaña',
+    title: c.name || c.nombre || `Campaña #${c.id_campaign || c.id}`,
+    subtitle: `Estado: ${c.status || 'Activa'} · Inversión: $${c.spent || 0}`,
+    to: '/dashboard/campanas',
+  }))
+
+  const allSearchItems = [...navSuggestions, ...campaignSuggestions]
+  const filteredSearch = searchQuery.trim()
+    ? allSearchItems.filter(item =>
+        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.subtitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        item.type.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : allSearchItems.slice(0, 8)
+
+  const handleSelectSearchItem = (item) => {
+    setShowSearchModal(false)
+    setSearchQuery('')
+    if (item.to) {
+      navigate(item.to)
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -79,9 +138,11 @@ export default function DashboardShell({ sidebarItems, tabs, user, onLogout, onU
         <div className="topbar-actions">
           {/* Búsqueda */}
           <button
-            className="topbar-icon-btn"
+            className={`topbar-icon-btn ${showSearchModal ? 'active' : ''}`}
             aria-label="Buscar"
             id="topbar-search-btn"
+            onClick={() => setShowSearchModal(true)}
+            title="Buscar en la plataforma (Ctrl+K)"
           >
             <IconSearch />
           </button>
@@ -129,12 +190,93 @@ export default function DashboardShell({ sidebarItems, tabs, user, onLogout, onU
         {children}
       </main>
 
+      {/* ── MODAL DE BÚSQUEDA RÁPIDA (GLOBAL COMMAND PALETTE) ── */}
+      {showSearchModal && (
+        <div className="modal-backdrop" onClick={() => setShowSearchModal(false)} role="dialog" aria-modal="true">
+          <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540, padding: '20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid var(--color-surface-border)', paddingBottom: 14 }}>
+              <div style={{ color: 'var(--color-primary)', width: 22, height: 22 }}>
+                <IconSearch />
+              </div>
+              <input
+                type="text"
+                autoFocus
+                placeholder="Buscar páginas, secciones o campañas... (ESC para cerrar)"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: '1rem',
+                  fontFamily: 'inherit',
+                  width: '100%',
+                  color: 'var(--color-text)',
+                  background: 'transparent'
+                }}
+              />
+              <button
+                className="modal-close-btn"
+                onClick={() => setShowSearchModal(false)}
+                aria-label="Cerrar búsqueda"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 340, overflowY: 'auto', marginTop: 10 }}>
+              {filteredSearch.length === 0 ? (
+                <p style={{ textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.88rem', padding: '28px 0' }}>
+                  No se encontraron resultados para &ldquo;{searchQuery}&rdquo;
+                </p>
+              ) : (
+                filteredSearch.map((item, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => handleSelectSearchItem(item)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      cursor: 'pointer',
+                      transition: 'background var(--transition-fast)',
+                      background: 'var(--color-surface-mid)',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.background = 'var(--color-primary-bg)'}
+                    onMouseLeave={(e) => e.currentTarget.style.background = 'var(--color-surface-mid)'}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--color-text)', display: 'block' }}>
+                        {item.title}
+                      </span>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
+                        {item.subtitle}
+                      </span>
+                    </div>
+                    <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>
+                      {item.type}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-surface-border)', paddingTop: 10, marginTop: 10, fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+              <span>Navega rápido con <strong>Ctrl + K</strong></span>
+              <span>Presiona <strong>ESC</strong> para salir</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── MODAL DE CUENTA / INFORMACIÓN PERSONAL ── */}
       <AccountModal
         isOpen={showAccountModal}
         onClose={() => setShowAccountModal(false)}
         user={user}
         onUpdateUser={onUpdateUser}
+        onLogout={onLogout}
       />
     </div>
   )

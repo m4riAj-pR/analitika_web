@@ -52,31 +52,83 @@ export default function AdminPanel({ user, onLogout, onUpdateUser }) {
    VISTA: Empresas Home (pestaña principal Super Admin)
    ══════════════════════════════════════════════════════════════ */
 function EmpresasHome() {
-  const [companies, setCompanies]     = useState([])
-  const [loading, setLoading]         = useState(true)
-  const [persons, setPersons]         = useState([])
+  const [companies, setCompanies]             = useState([])
+  const [loading, setLoading]                 = useState(true)
+  const [persons, setPersons]                 = useState([])
   const [selectedCompany, setSelectedCompany] = useState(null)
-  const [panelOpen, setPanelOpen]     = useState(false)
+  const [panelOpen, setPanelOpen]             = useState(false)
 
   useEffect(() => {
     Promise.all([
-      api.companies.getAll().catch(() => []),
-      api.persons.getAll().catch(()   => []),
-    ]).then(([co, pe]) => {
+      api.admin.getCompanies().catch(() => api.companies.getAll().catch(() => [])),
+      api.admin.getUsersByRole().catch(() => null),
+      api.persons.getAll().catch(() => []),
+    ]).then(([co, usersByRole, pe]) => {
       setCompanies(Array.isArray(co) ? co : [])
-      setPersons(Array.isArray(pe) ? pe : [])
+
+      const personsList = Array.isArray(pe) ? pe : []
+      const mergedPersons = []
+
+      // Consolidar usuarios mapeados por rol desde el backend
+      if (usersByRole) {
+        const owners = usersByRole.owners || []
+        const managers = usersByRole.managements || []
+        const allRoleUsers = [...owners, ...managers]
+
+        allRoleUsers.forEach(ru => {
+          const personMatch = personsList.find(p => p.email === ru.email) || {}
+          mergedPersons.push({
+            id: ru.id_user,
+            id_user: ru.id_user,
+            id_person: personMatch.id_person || personMatch.id,
+            name: personMatch.name || personMatch.nombre || ru.email.split('@')[0],
+            last_name: personMatch.last_name || personMatch.apellido || '',
+            email: ru.email,
+            id_role: ru.id_role,
+            id_company: ru.id_company,
+          })
+        })
+      }
+
+      // Si hay personas en personsList que no estaban en usersByRole
+      personsList.forEach(p => {
+        const alreadyIn = mergedPersons.find(m => m.email === p.email)
+        if (!alreadyIn) {
+          mergedPersons.push({
+            id: p.id || p.id_person,
+            id_user: p.id_user || p.id || p.id_person,
+            id_person: p.id_person || p.id,
+            name: p.name || p.nombre || '',
+            last_name: p.last_name || p.apellido || '',
+            email: p.email,
+            id_role: p.id_role || 3,
+            id_company: p.id_company || p.company_id,
+          })
+        }
+      })
+
+      setPersons(mergedPersons)
     }).finally(() => setLoading(false))
   }, [])
 
   // Métricas de plataforma
   const totalCompanies = companies.length
   const totalUsers     = persons.length
-  // Campañas activas: sumatoria si cada empresa trae conteo
   const totalCampaigns = companies.reduce((s, c) => s + (c.campaigns_count || c.total_campaigns || 0), 0)
 
   const openPanel = (company) => {
     setSelectedCompany(company)
     setPanelOpen(true)
+  }
+
+  const handleRoleUpdated = (personId, newRole) => {
+    setPersons(prev =>
+      prev.map(p =>
+        p.id === personId || p.id_user === personId
+          ? { ...p, id_role: newRole }
+          : p
+      )
+    )
   }
 
   return (
@@ -123,13 +175,14 @@ function EmpresasHome() {
             ) : (
               <div className="campaign-chips">
                 {companies.slice(0, 12).map(co => {
-                  const name = co.name || co.nombre || co.company_name || `Empresa ${co.id}`
+                  const compId = co.id_company || co.id
+                  const name = co.nombre_empresa || co.name || co.nombre || co.company_name || `Empresa ${compId}`
                   return (
                     <button
-                      key={co.id}
+                      key={compId}
                       className="campaign-chip"
                       onClick={() => openPanel(co)}
-                      id={`company-chip-${co.id}`}
+                      id={`company-chip-${compId}`}
                     >
                       <span className="campaign-chip-dot active" />
                       {name}
@@ -140,7 +193,7 @@ function EmpresasHome() {
             )}
           </div>
 
-          {/* Tarjeta grande — tabla de empresas con Owners/Managers (equiv. F15 móvil) */}
+          {/* Tarjeta grande — tabla de empresas con Owners/Managers */}
           <div className="card card-chart" style={{ minHeight: 300 }}>
             <div className="card-title">Empresas — Owners y Managers</div>
             {loading ? (
@@ -167,13 +220,14 @@ function EmpresasHome() {
                         </td>
                       </tr>
                     ) : companies.map(co => {
-                      const name     = co.name || co.nombre || co.company_name || `Empresa ${co.id}`
-                      const owners   = co.owners_count   ?? co.total_owners   ?? '—'
-                      const managers = co.managers_count ?? co.total_managers ?? '—'
+                      const compId   = co.id_company || co.id
+                      const name     = co.nombre_empresa || co.name || co.nombre || co.company_name || `Empresa ${compId}`
+                      const owners   = co.owners ?? co.owners_count ?? co.total_owners ?? '—'
+                      const managers = co.managements ?? co.managers_count ?? co.total_managers ?? '—'
                       const camps    = co.campaigns_count ?? co.total_campaigns ?? '—'
                       const initial  = name[0]?.toUpperCase() || 'E'
                       return (
-                        <tr key={co.id} onClick={() => openPanel(co)} id={`company-row-${co.id}`}>
+                        <tr key={compId} onClick={() => openPanel(co)} id={`company-row-${compId}`}>
                           <td>
                             <div className="company-row">
                               <div className="company-avatar">{initial}</div>
@@ -203,18 +257,19 @@ function EmpresasHome() {
         </div>
       </div>
 
-      {/* ── Detail Panel — empresa (equiv. F16 móvil) ── */}
+      {/* ── Detail Panel — empresa ── */}
       <DetailPanel
         isOpen={panelOpen}
         onClose={() => setPanelOpen(false)}
         title={selectedCompany
-          ? (selectedCompany.name || selectedCompany.nombre || 'Detalle de empresa')
+          ? (selectedCompany.nombre_empresa || selectedCompany.name || selectedCompany.nombre || 'Detalle de empresa')
           : 'Detalle'}
       >
         {selectedCompany && (
           <CompanyDetail
             company={selectedCompany}
             persons={persons}
+            onRoleUpdated={handleRoleUpdated}
           />
         )}
       </DetailPanel>
@@ -223,31 +278,55 @@ function EmpresasHome() {
 }
 
 /* ── Detalle empresa en el panel ─────────────────────────────── */
-function CompanyDetail({ company, persons }) {
-  const name = company.name || company.nombre || company.company_name || '—'
+function CompanyDetail({ company, persons, onRoleUpdated }) {
+  const companyId = company.id_company || company.id
+  const name = company.nombre_empresa || company.name || company.nombre || company.company_name || '—'
 
-  // Usuarios de esta empresa (si la respuesta de persons incluye id_company)
+  // Usuarios de esta empresa
   const companyPersons = persons.filter(p =>
-    p.id_company === company.id || p.company_id === company.id
+    (p.id_company != null && Number(p.id_company) === Number(companyId)) ||
+    (p.company_id != null && Number(p.company_id) === Number(companyId))
   )
 
-  // Rol label
   const roleLabel = (role) => {
     if (role === 1 || role === 'super_admin') return 'Super Admin'
     if (role === 2 || role === 'owner')       return 'Owner'
     if (role === 3 || role === 'manager')     return 'Manager'
-    return role || '—'
+    return `Rol ${role}` || '—'
   }
 
   const [editingPersonId, setEditingPersonId] = useState(null)
   const [savingId, setSavingId]               = useState(null)
+  const [feedback, setFeedback]               = useState('')
 
   const handleRoleChange = async (person, newRole) => {
-    // TODO: conectar con endpoint PATCH /analitika/persons/:id/role cuando esté disponible
+    const targetUserId = person.id_user || person.id || person.id_person
     setSavingId(person.id)
-    await new Promise(r => setTimeout(r, 600)) // Simula latencia
-    setSavingId(null)
-    setEditingPersonId(null)
+    setFeedback('')
+
+    try {
+      await api.admin.updateUserRole(targetUserId, newRole)
+      if (onRoleUpdated) {
+        onRoleUpdated(person.id, newRole)
+      }
+      setFeedback(`¡Rol de ${person.name || person.email} actualizado exitosamente a ${roleLabel(newRole)}!`)
+      setTimeout(() => setFeedback(''), 3000)
+    } catch {
+      try {
+        await api.persons.updateRole(targetUserId, newRole)
+        if (onRoleUpdated) {
+          onRoleUpdated(person.id, newRole)
+        }
+        setFeedback(`¡Rol de ${person.name || person.email} actualizado a ${roleLabel(newRole)}!`)
+        setTimeout(() => setFeedback(''), 3000)
+      } catch {
+        setFeedback('Error al actualizar el rol en la base de datos.')
+        setTimeout(() => setFeedback(''), 3500)
+      }
+    } finally {
+      setSavingId(null)
+      setEditingPersonId(null)
+    }
   }
 
   return (
@@ -262,23 +341,33 @@ function CompanyDetail({ company, persons }) {
         )}
       </div>
 
+      {/* Alerta de feedback */}
+      {feedback && (
+        <div className={`alert-message ${feedback.startsWith('Error') ? 'alert-error' : 'alert-success'}`}>
+          {feedback}
+        </div>
+      )}
+
       {/* Métricas */}
       <div className="detail-kpi-grid">
         <div className="detail-kpi-row">
           <span className="detail-kpi-label">Owners</span>
-          <span className="detail-kpi-value">{company.owners_count ?? '—'}</span>
+          <span className="detail-kpi-value">{company.owners ?? company.owners_count ?? '—'}</span>
         </div>
         <div className="detail-kpi-row">
           <span className="detail-kpi-label">Managers</span>
-          <span className="detail-kpi-value">{company.managers_count ?? '—'}</span>
+          <span className="detail-kpi-value">{company.managements ?? company.managers_count ?? '—'}</span>
         </div>
       </div>
 
       {/* Lista de usuarios con edición de rol */}
       <div>
-        <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
-          Usuarios
-        </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
+            Usuarios Asignados ({companyPersons.length})
+          </p>
+        </div>
+
         {companyPersons.length === 0 ? (
           <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
             No hay usuarios cargados para esta empresa.
@@ -308,7 +397,8 @@ function CompanyDetail({ company, persons }) {
                     style={{
                       padding: '4px 8px', borderRadius: 'var(--radius-sm)',
                       border: '1px solid var(--color-surface-border)',
-                      fontSize: '0.8rem', fontFamily: 'inherit'
+                      fontSize: '0.8rem', fontFamily: 'inherit',
+                      background: 'var(--color-surface)', cursor: 'pointer'
                     }}
                     onChange={(e) => handleRoleChange(person, Number(e.target.value))}
                     disabled={isSaving}
@@ -317,7 +407,13 @@ function CompanyDetail({ company, persons }) {
                     <option value={2}>Owner</option>
                     <option value={3}>Manager</option>
                   </select>
-                  <button className="btn-ghost" onClick={() => setEditingPersonId(null)}>✕</button>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => setEditingPersonId(null)}
+                    title="Cancelar edición"
+                  >
+                    ✕
+                  </button>
                 </div>
               ) : (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -326,6 +422,7 @@ function CompanyDetail({ company, persons }) {
                     className="btn-ghost"
                     onClick={() => setEditingPersonId(person.id)}
                     aria-label={`Editar rol de ${fullName}`}
+                    title="Editar rol de este usuario"
                     id={`edit-role-btn-${person.id}`}
                   >
                     ✎

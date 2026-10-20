@@ -67,6 +67,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+    forgotPassword: (email) =>
+      apiFetch('/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
     me: () => apiFetch('/me'),
     updateProfile: async (payload) => {
       try {
@@ -245,6 +250,18 @@ export const api = {
       apiFetch(`/analitika/persons/${id}`, {
         method: 'DELETE',
       }),
+  },
+
+  // Módulo de Administración (Super Admin)
+  admin: {
+    getCompanies: () => apiFetch('/analitika/admin/companies'),
+    getUsersByRole: () => apiFetch('/analitika/admin/users-by-role'),
+    updateUserRole: async (idUser, idRole) => {
+      return apiFetch(`/analitika/admin/users/${idUser}/role`, {
+        method: 'PUT',
+        body: JSON.stringify({ id_role: idRole }),
+      });
+    },
   },
 };
 

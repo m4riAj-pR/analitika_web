@@ -64,13 +64,22 @@
 }
 
 .btn-lang {
-  background: none;
-  border: none;
-  color: #555;
+  background: #f7f6fb;
+  border: 1px solid #e8e4f0;
+  border-radius: 8px;
+  color: #4b5563;
   font-family: 'League Spartan', sans-serif;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
+  font-weight: 600;
   cursor: pointer;
-  padding: 0.4rem 0.5rem;
+  padding: 0.4rem 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.btn-lang:hover {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-color: #a78bfa;
 }
 
 /* ─── Main body layout ────────────────────────────── */
@@ -79,6 +88,18 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   min-height: calc(100vh - 64px);
+}
+
+@media (max-width: 860px) {
+  .login-body {
+    grid-template-columns: 1fr;
+  }
+  .login-deco {
+    display: none !important;
+  }
+  .login-form-section {
+    padding: 2rem 1.5rem !important;
+  }
 }
 
 /* ─── LEFT — Decorative ───────────────────────────── */

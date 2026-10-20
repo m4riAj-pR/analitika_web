@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import AdminPanel from './pages/AdminPanel'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -68,6 +69,16 @@ export default function App() {
             user
               ? <Navigate to={homeRoute()} replace />
               : <Login onLogin={handleLogin} />
+          }
+        />
+
+        {/* ── Ruta de registro ── */}
+        <Route
+          path="/register"
+          element={
+            user
+              ? <Navigate to={homeRoute()} replace />
+              : <Register onLogin={handleLogin} />
           }
         />
 

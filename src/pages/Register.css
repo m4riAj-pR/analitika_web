@@ -1,0 +1,360 @@
+/* ─── Google Font: League Spartan ─────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=League+Spartan:wght@400;500;600;700;800;900&display=swap');
+
+/* ─── Root layout ─────────────────────────────────── */
+.register-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  font-family: 'League Spartan', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #1a1a2e;
+  overflow-x: hidden;
+}
+
+/* ─── Navbar ──────────────────────────────────────── */
+.register-nav {
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2.5rem;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.register-logo {
+  display: flex;
+  align-items: center;
+}
+
+.register-logo img {
+  height: 40px;
+  object-fit: contain;
+}
+
+.register-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-login-nav {
+  background: #6d28d9;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 0.55rem 1.4rem;
+  font-family: 'League Spartan', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(109, 40, 217, 0.2);
+}
+
+.btn-login-nav:hover {
+  background: #5b21b6;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(109, 40, 217, 0.3);
+}
+
+.btn-lang {
+  background: #f7f6fb;
+  border: 1px solid #e8e4f0;
+  border-radius: 8px;
+  color: #4b5563;
+  font-family: 'League Spartan', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.4rem 0.85rem;
+  transition: all 0.2s ease;
+}
+
+.btn-lang:hover {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-color: #a78bfa;
+}
+
+/* ─── Main body layout ────────────────────────────── */
+.register-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  min-height: calc(100vh - 68px);
+}
+
+/* ─── LEFT — Decorative scene ─────────────────────── */
+.register-deco {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+/* Pac-man shape top-left */
+.register-deco .deco-circle-large {
+  position: absolute;
+  top: -40px;
+  left: -40px;
+  width: 250px;
+  height: 250px;
+  opacity: 0.85;
+}
+
+/* Accent pulse dot */
+.register-deco .deco-circle-mid {
+  position: absolute;
+  top: 50%;
+  right: 6%;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #ddd6fe;
+}
+
+/* Tiny floating dots */
+.register-deco .deco-dot {
+  position: absolute;
+  border-radius: 50%;
+  background: #7c3aed;
+}
+
+.register-deco .deco-dot-1 {
+  width: 14px;
+  height: 14px;
+  top: 24%;
+  left: 22%;
+  opacity: 0.9;
+}
+
+.register-deco .deco-dot-2 {
+  width: 9px;
+  height: 9px;
+  top: 60%;
+  left: 48%;
+  opacity: 0.6;
+}
+
+.register-deco .deco-dot-3 {
+  width: 7px;
+  height: 7px;
+  top: 18%;
+  right: 20%;
+  opacity: 0.5;
+  background: #a78bfa;
+}
+
+.register-deco .deco-dot-4 {
+  width: 11px;
+  height: 11px;
+  top: 45%;
+  right: 14%;
+  opacity: 0.8;
+  background: #7c3aed;
+}
+
+/* BAR CHART — bottom left */
+.register-deco .deco-bar-chart {
+  position: absolute;
+  bottom: 30px;
+  left: 40px;
+  width: 170px;
+  height: 130px;
+}
+
+/* PIE CHART — bottom center-right */
+.register-deco .deco-pie-chart {
+  position: absolute;
+  bottom: 25px;
+  right: 90px;
+  width: 170px;
+  height: 170px;
+}
+
+/* PHONE MOCKUP */
+
+.deco-phone {
+  position: relative;
+  z-index: 5;
+}
+
+
+.phone-screen {
+  width: 100%;
+  height: 100%;
+  border-radius: 28px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.phone-screen-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ─── RIGHT — Form section ────────────────────────── */
+.register-form-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 3rem 2.5rem 1.5rem;
+}
+
+.register-card {
+  width: 100%;
+  max-width: 440px;
+}
+
+.register-title {
+  font-family: 'League Spartan', sans-serif;
+  font-size: 2.3rem;
+  font-weight: 800;
+  line-height: 1.15;
+  color: #111827;
+  letter-spacing: -0.02em;
+  margin-bottom: 1.8rem;
+}
+
+.register-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.register-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.register-label {
+  font-family: 'League Spartan', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.register-input {
+  width: 100%;
+  height: 44px;
+  background: #f0eef8; 
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-family: 'League Spartan', sans-serif;
+  font-size: 0.95rem;
+  color: #98a4c7;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.register-input:focus {
+  background: #ffffff;
+  border-color: #6d28d9;
+  box-shadow: 0 0 0 3px rgba(109, 40, 217, 0.15);
+}
+
+/* Terms checkbox */
+.register-terms {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  cursor: pointer;
+  margin-top: 0.2rem;
+  margin-bottom: 0.4rem;
+}
+
+.register-terms input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin-top: 2px;
+  accent-color: #6d28d9;
+  cursor: pointer;
+}
+
+.register-terms span {
+  font-family: 'League Spartan', sans-serif;
+  font-size: 0.85rem;
+  color: #374151;
+  line-height: 1.35;
+}
+
+/* Submit button */
+.btn-register-submit {
+  width: 100%;
+  height: 48px;
+  background: #6d28d9;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  font-family: 'League Spartan', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(109, 40, 217, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 0.4rem;
+}
+
+.btn-register-submit:hover:not(:disabled) {
+  background: #5b21b6;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(109, 40, 217, 0.4);
+}
+
+.btn-register-submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+/* Bottom login link */
+.register-footer-text {
+  text-align: center;
+  margin-top: 1.6rem;
+  font-family: 'League Spartan', sans-serif;
+  font-size: 0.9rem;
+  color: #4b5563;
+}
+
+.register-login-link {
+  background: none;
+  border: none;
+  color: #111827;
+  font-family: 'League Spartan', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 4px;
+}
+
+.register-login-link:hover {
+  color: #6d28d9;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .register-body {
+    grid-template-columns: 1fr;
+  }
+  .register-deco {
+    display: none;
+  }
+  .register-form-section {
+    padding: 2.5rem 1.5rem;
+  }
+}
