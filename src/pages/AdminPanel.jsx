@@ -77,15 +77,16 @@ function EmpresasHome() {
 
         allRoleUsers.forEach(ru => {
           const personMatch = personsList.find(p => p.email === ru.email) || {}
+          const compId = ru.id_company || ru.company_id || personMatch.id_company || personMatch.company_id
+          const resolvedName = [personMatch.name || personMatch.nombre, personMatch.last_name || personMatch.apellido].filter(Boolean).join(' ').trim() || ru.email.split('@')[0]
           mergedPersons.push({
             id: ru.id_user,
             id_user: ru.id_user,
             id_person: personMatch.id_person || personMatch.id,
-            name: personMatch.name || personMatch.nombre || ru.email.split('@')[0],
-            last_name: personMatch.last_name || personMatch.apellido || '',
+            name: resolvedName,
             email: ru.email,
             id_role: ru.id_role,
-            id_company: ru.id_company,
+            id_company: compId,
           })
         })
       }
@@ -93,17 +94,20 @@ function EmpresasHome() {
       // Si hay personas en personsList que no estaban en usersByRole
       personsList.forEach(p => {
         const alreadyIn = mergedPersons.find(m => m.email === p.email)
+        const compId = p.id_company || p.company_id
         if (!alreadyIn) {
+          const resolvedName = [p.name || p.nombre, p.last_name || p.apellido].filter(Boolean).join(' ').trim() || p.email.split('@')[0]
           mergedPersons.push({
             id: p.id || p.id_person,
             id_user: p.id_user || p.id || p.id_person,
             id_person: p.id_person || p.id,
-            name: p.name || p.nombre || '',
-            last_name: p.last_name || p.apellido || '',
+            name: resolvedName,
             email: p.email,
             id_role: p.id_role || 3,
-            id_company: p.id_company || p.company_id,
+            id_company: compId,
           })
+        } else if (!alreadyIn.id_company && compId) {
+          alreadyIn.id_company = compId
         }
       })
 
@@ -282,11 +286,46 @@ function CompanyDetail({ company, persons, onRoleUpdated }) {
   const companyId = company.id_company || company.id
   const name = company.nombre_empresa || company.name || company.nombre || company.company_name || '—'
 
-  // Usuarios de esta empresa
-  const companyPersons = persons.filter(p =>
-    (p.id_company != null && Number(p.id_company) === Number(companyId)) ||
-    (p.company_id != null && Number(p.company_id) === Number(companyId))
+  // Usuarios de esta empresa desde el estado global
+  const matchedFromPersons = persons.filter(p =>
+    (p.id_company != null && String(p.id_company) === String(companyId)) ||
+    (p.company_id != null && String(p.company_id) === String(companyId))
   )
+
+  const [extraManagements, setExtraManagements] = useState([])
+  const [loadingExtra, setLoadingExtra] = useState(false)
+
+  // Consulta proactiva al endpoint de managements de la empresa
+  useEffect(() => {
+    if (companyId) {
+      setLoadingExtra(true)
+      api.companies.getManagements(companyId)
+        .then(res => {
+          if (Array.isArray(res)) {
+            setExtraManagements(res)
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingExtra(false))
+    }
+  }, [companyId])
+
+  // Consolidar usuarios eliminando duplicados por email/id
+  const companyPersons = [...matchedFromPersons]
+  extraManagements.forEach(em => {
+    const email = em.email
+    const exists = companyPersons.some(p => p.email === email || (em.id && p.id === em.id))
+    if (!exists) {
+      companyPersons.push({
+        id: em.id || em.id_user || em.id_person || Date.now(),
+        id_user: em.id_user || em.id,
+        name: [em.name || em.nombre, em.last_name || em.apellido].filter(Boolean).join(' ').trim() || email.split('@')[0],
+        email: email,
+        id_role: em.id_role || 3,
+        id_company: companyId,
+      })
+    }
+  })
 
   const roleLabel = (role) => {
     if (role === 1 || role === 'super_admin') return 'Super Admin'
@@ -329,6 +368,9 @@ function CompanyDetail({ company, persons, onRoleUpdated }) {
     }
   }
 
+  const ownersCount = companyPersons.filter(p => Number(p.id_role) === 2).length || (company.owners ?? company.owners_count ?? 0)
+  const managersCount = companyPersons.filter(p => Number(p.id_role) === 3).length || (company.managements ?? company.managers_count ?? 0)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       {/* Nombre */}
@@ -352,11 +394,11 @@ function CompanyDetail({ company, persons, onRoleUpdated }) {
       <div className="detail-kpi-grid">
         <div className="detail-kpi-row">
           <span className="detail-kpi-label">Owners</span>
-          <span className="detail-kpi-value">{company.owners ?? company.owners_count ?? '—'}</span>
+          <span className="detail-kpi-value">{ownersCount}</span>
         </div>
         <div className="detail-kpi-row">
           <span className="detail-kpi-label">Managers</span>
-          <span className="detail-kpi-value">{company.managements ?? company.managers_count ?? '—'}</span>
+          <span className="detail-kpi-value">{managersCount}</span>
         </div>
       </div>
 
@@ -366,6 +408,11 @@ function CompanyDetail({ company, persons, onRoleUpdated }) {
           <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
             Usuarios Asignados ({companyPersons.length})
           </p>
+          {loadingExtra && (
+            <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)' }}>
+              Sincronizando managers...
+            </span>
+          )}
         </div>
 
         {companyPersons.length === 0 ? (
@@ -373,7 +420,7 @@ function CompanyDetail({ company, persons, onRoleUpdated }) {
             No hay usuarios cargados para esta empresa.
           </p>
         ) : companyPersons.map(person => {
-          const fullName = `${person.name || person.nombre || ''} ${person.last_name || person.apellido || ''}`.trim() || person.email || '—'
+          const fullName = person.name || person.nombre || person.email || '—'
           const isEditing = editingPersonId === person.id
           const isSaving  = savingId === person.id
 

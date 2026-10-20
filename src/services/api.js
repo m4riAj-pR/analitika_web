@@ -120,6 +120,17 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    predictRoi: (data) =>
+      apiFetch('/api/v1/campaigns/predict-roi', {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: data.channel || 'Meta',
+          spend_48h: parseFloat(data.spend_48h ?? 0),
+          clicks_48h: parseInt(data.clicks_48h ?? 0, 10),
+          conversions_48h: parseInt(data.conversions_48h ?? 0, 10),
+          revenue_48h: parseFloat(data.revenue_48h ?? 0),
+        }),
+      }),
   },
 
   // Canales de difusión
@@ -223,6 +234,24 @@ export const api = {
   // Empresas
   companies: {
     getAll: () => apiFetch('/analitika/companies'),
+    getById: (id) => apiFetch(`/analitika/companies/${id}`),
+    getManagements: async (companyId) => {
+      try {
+        const res = await apiFetch(`/analitika/companies/${companyId}/managements`);
+        if (Array.isArray(res) && res.length > 0) return res;
+      } catch {
+        // Fallback al endpoint filtrado de personas
+      }
+      try {
+        const persons = await apiFetch(`/analitika/persons/?id_company=${companyId}`);
+        if (Array.isArray(persons)) {
+          return persons.filter(p => Number(p.id_role) === 3 || p.role === 'manager' || p.role === 'management');
+        }
+      } catch {
+        // Fallback silencioso
+      }
+      return [];
+    },
   },
 
   // Personas

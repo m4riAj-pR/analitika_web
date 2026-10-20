@@ -5,8 +5,7 @@ import { IconUsers, IconShield } from './DashboardShell'
 const INITIAL_TEAM = [
   {
     id: 1,
-    name: 'Carlos',
-    last_name: 'Owner',
+    name: 'Carlos Owner',
     email: 'carlos.owner@analitika.com',
     phone: '+57 310 987 6543',
     id_role: 2,
@@ -17,8 +16,7 @@ const INITIAL_TEAM = [
   },
   {
     id: 2,
-    name: 'Ana',
-    last_name: 'Gómez',
+    name: 'Ana Gómez',
     email: 'ana.manager@analitika.com',
     phone: '+57 315 444 8921',
     id_role: 3,
@@ -29,8 +27,7 @@ const INITIAL_TEAM = [
   },
   {
     id: 3,
-    name: 'David',
-    last_name: 'Restrepo',
+    name: 'David Restrepo',
     email: 'david.r@analitika.com',
     phone: '+57 301 777 3311',
     id_role: 3,
@@ -55,7 +52,6 @@ export default function EquipoView({ user }) {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [inviteForm, setInviteForm] = useState({
     name: '',
-    last_name: '',
     email: '',
     id_role: 3,
     id_company: user?.id_company || '',
@@ -145,8 +141,7 @@ export default function EquipoView({ user }) {
 
           return {
             id: p.id || p.id_person || idx + 10,
-            name: p.name || p.nombre || 'Miembro',
-            last_name: p.last_name || p.apellido || '',
+            name: [p.name || p.nombre, p.last_name || p.apellido].filter(Boolean).join(' ').trim() || 'Miembro',
             email: p.email || 'sin-correo@analitika.com',
             phone: p.phone || p.telefono || '—',
             id_role: roleNum,
@@ -222,7 +217,6 @@ export default function EquipoView({ user }) {
     const newMember = {
       id: Date.now(),
       name: inviteForm.name.trim(),
-      last_name: inviteForm.last_name.trim(),
       email: inviteForm.email.trim(),
       phone: '—',
       id_role: selectedRole,
@@ -236,7 +230,6 @@ export default function EquipoView({ user }) {
     try {
       await api.persons.create({
         name: newMember.name,
-        last_name: newMember.last_name,
         email: newMember.email,
         id_role: newMember.id_role,
         id_company: newMember.id_company,
@@ -248,14 +241,14 @@ export default function EquipoView({ user }) {
     setTeam(prev => [newMember, ...prev])
     setInviting(false)
     setShowInviteModal(false)
-    setInviteForm({ name: '', last_name: '', email: '', id_role: 3, id_company: user?.id_company || '' })
+    setInviteForm({ name: '', email: '', id_role: 3, id_company: user?.id_company || '' })
     setActionSuccess(`¡Invitación enviada y miembro ${newMember.name} agregado al equipo!`)
     setTimeout(() => setActionSuccess(''), 4000)
   }
 
   // Filtrado
   const filteredTeam = team.filter(m => {
-    const fullName = `${m.name} ${m.last_name}`.toLowerCase()
+    const fullName = (m.name || '').toLowerCase()
     const matchSearch = fullName.includes(search.toLowerCase()) || 
                         m.email.toLowerCase().includes(search.toLowerCase()) ||
                         (m.company_name && m.company_name.toLowerCase().includes(search.toLowerCase()))
@@ -411,7 +404,12 @@ export default function EquipoView({ user }) {
                 </tr>
               ) : (
                 filteredTeam.map(member => {
-                  const initials = `${member.name[0] || ''}${member.last_name[0] || ''}`.toUpperCase() || 'U'
+                  const initials = (member.name || 'U')
+                    .split(' ')
+                    .map(w => w[0])
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase() || 'U'
                   const isCurrentLoggedUser = member.email === user?.email
                   const roleMeta = getRoleInfo(member.id_role)
 
@@ -436,7 +434,7 @@ export default function EquipoView({ user }) {
                           </div>
                           <div>
                             <span style={{ fontWeight: 600, color: 'var(--color-text)', display: 'block' }}>
-                              {member.name} {member.last_name}
+                              {member.name}
                               {isCurrentLoggedUser && (
                                 <span style={{ fontSize: '0.72rem', color: 'var(--color-primary)', marginLeft: 6, fontWeight: 700 }}>
                                   (Tú)
@@ -509,7 +507,7 @@ export default function EquipoView({ user }) {
                             {!isCurrentLoggedUser && (
                               <button
                                 className="btn-ghost"
-                                onClick={() => handleDeleteMember(member.id, `${member.name} ${member.last_name}`)}
+                                onClick={() => handleDeleteMember(member.id, member.name)}
                                 title="Remover del equipo (Eliminación en base de datos)"
                                 style={{ color: 'var(--color-danger)', padding: '4px 8px' }}
                               >
@@ -541,29 +539,16 @@ export default function EquipoView({ user }) {
             </div>
 
             <form onSubmit={handleInviteSubmit} className="account-form">
-              <div className="form-row-2">
-                <div className="form-group">
-                  <label>Nombre</label>
-                  <input
-                    type="text"
-                    required
-                    className="input-control"
-                    placeholder="Ej. Laura"
-                    value={inviteForm.name}
-                    onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Apellido</label>
-                  <input
-                    type="text"
-                    required
-                    className="input-control"
-                    placeholder="Ej. Gómez"
-                    value={inviteForm.last_name}
-                    onChange={(e) => setInviteForm({ ...inviteForm, last_name: e.target.value })}
-                  />
-                </div>
+              <div className="form-group" style={{ marginBottom: 14 }}>
+                <label>Nombre Completo</label>
+                <input
+                  type="text"
+                  required
+                  className="input-control"
+                  placeholder="Ej. Laura Gómez"
+                  value={inviteForm.name}
+                  onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
+                />
               </div>
 
               <div className="form-group">

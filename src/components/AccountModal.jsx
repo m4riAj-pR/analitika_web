@@ -4,7 +4,6 @@ import { api } from '../services/api'
 export default function AccountModal({ isOpen, onClose, user, onUpdateUser, onLogout }) {
   const [formData, setFormData] = useState({
     name: '',
-    last_name: '',
     email: '',
     phone: '',
     company: '',
@@ -17,8 +16,7 @@ export default function AccountModal({ isOpen, onClose, user, onUpdateUser, onLo
   useEffect(() => {
     if (user) {
       setFormData({
-        name: user.name || user.nombre || '',
-        last_name: user.last_name || user.apellido || '',
+        name: [user.name || user.nombre, user.last_name || user.apellido].filter(Boolean).join(' ').trim() || '',
         email: user.email || '',
         phone: user.phone || user.telefono || '',
         company: user.company || user.empresa || '',
@@ -61,7 +59,6 @@ export default function AccountModal({ isOpen, onClose, user, onUpdateUser, onLo
     try {
       const payload = {
         name: formData.name.trim(),
-        last_name: formData.last_name.trim(),
         email: formData.email.trim(),
         phone: formData.phone.trim(),
       }
@@ -134,32 +131,18 @@ export default function AccountModal({ isOpen, onClose, user, onUpdateUser, onLo
 
         {/* Formulario */}
         <form onSubmit={handleSubmit} className="account-form">
-          <div className="form-row-2">
-            <div className="form-group">
-              <label htmlFor="account-name">Nombre</label>
-              <input
-                id="account-name"
-                name="name"
-                type="text"
-                className="input-control"
-                placeholder="Ej. Juan"
-                value={formData.name}
-                onChange={handleChange}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label htmlFor="account-last-name">Apellidos</label>
-              <input
-                id="account-last-name"
-                name="last_name"
-                type="text"
-                className="input-control"
-                placeholder="Ej. Pérez"
-                value={formData.last_name}
-                onChange={handleChange}
-              />
-            </div>
+          <div className="form-group" style={{ marginBottom: 14 }}>
+            <label htmlFor="account-name">Nombre Completo</label>
+            <input
+              id="account-name"
+              name="name"
+              type="text"
+              className="input-control"
+              placeholder="Ej. Juan Pérez"
+              value={formData.name}
+              onChange={handleChange}
+              required
+            />
           </div>
 
           <div className="form-row-2">

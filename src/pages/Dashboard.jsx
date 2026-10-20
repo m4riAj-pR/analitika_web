@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import DashboardShell, {
-  IconDashboard, IconCampaign, IconUsers, IconLink, IconFolderPlus
+  IconDashboard, IconCampaign, IconUsers, IconLink, IconFolderPlus, IconRanking
 } from '../components/DashboardShell'
 import DetailPanel from '../components/DetailPanel'
 import EquipoView from '../components/EquipoView'
 import CrearCampanaForm from '../components/CrearCampanaForm'
+import CampaignAnalyticsChart from '../components/CampaignAnalyticsChart'
+import RoiPredictorCard from '../components/RoiPredictorCard'
 import { api } from '../services/api'
 
 /* ─── Sidebar config ─────────────────────────── */
 const OWNER_SIDEBAR = [
   { id: 'dashboard', label: 'Dashboard',         to: '/dashboard',          exact: true,  icon: <IconDashboard /> },
   { id: 'campanas',  label: 'Campañas',          to: '/dashboard/campanas', exact: false, icon: <IconCampaign /> },
+  { id: 'ranking',   label: 'Ranking',           to: '/dashboard/ranking',  exact: false, icon: <IconRanking /> },
   { id: 'equipo',    label: 'Gestión de equipo', to: '/dashboard/equipo',   exact: false, icon: <IconUsers /> },
   { id: 'links',     label: 'Links Trackeables', to: '/dashboard/links',    exact: false, icon: <IconLink /> },
   { id: 'crear',     label: 'Crear Campaña',     to: '/dashboard/crear',    exact: false, icon: <IconFolderPlus /> },
@@ -20,7 +23,7 @@ const OWNER_SIDEBAR = [
 const MANAGER_SIDEBAR = [
   { id: 'dashboard', label: 'Dashboard',         to: '/dashboard',          exact: true,  icon: <IconDashboard /> },
   { id: 'campanas',  label: 'Campañas',          to: '/dashboard/campanas', exact: false, icon: <IconCampaign /> },
-  { id: 'equipo',    label: 'Gestión de equipo', to: '/dashboard/equipo',   exact: false, icon: <IconUsers /> },
+  { id: 'ranking',   label: 'Ranking',           to: '/dashboard/ranking',  exact: false, icon: <IconRanking /> },
   { id: 'links',     label: 'Links Trackeables', to: '/dashboard/links',    exact: false, icon: <IconLink /> },
   { id: 'crear',     label: 'Crear Campaña',     to: '/dashboard/crear',    exact: false, icon: <IconFolderPlus /> },
 ]
@@ -29,18 +32,19 @@ const MANAGER_SIDEBAR = [
 const OWNER_TABS = [
   { id: 'dashboard', label: 'Dashboard',         to: '/dashboard',          exact: true },
   { id: 'campanas',  label: 'Campañas',          to: '/dashboard/campanas', exact: false },
+  { id: 'ranking',   label: 'Ranking',           to: '/dashboard/ranking',  exact: false },
   { id: 'equipo',    label: 'Gestión de equipo', to: '/dashboard/equipo',   exact: false },
 ]
 
 const MANAGER_TABS = [
   { id: 'dashboard', label: 'Dashboard',         to: '/dashboard',          exact: true },
   { id: 'campanas',  label: 'Campañas',          to: '/dashboard/campanas', exact: false },
-  { id: 'equipo',    label: 'Gestión de equipo', to: '/dashboard/equipo',   exact: false },
+  { id: 'ranking',   label: 'Ranking',           to: '/dashboard/ranking',  exact: false },
 ]
 
 /* ─── Main Dashboard page ────────────────────── */
 export default function Dashboard({ user, onLogout, onUpdateUser }) {
-  const isOwner   = user?.id_role === 2
+  const isOwner   = user?.id_role === 2 || user?.id_role === 1
   const isManager = user?.id_role === 3
 
   const sidebarItems = isOwner ? OWNER_SIDEBAR : MANAGER_SIDEBAR
@@ -55,10 +59,14 @@ export default function Dashboard({ user, onLogout, onUpdateUser }) {
       onUpdateUser={onUpdateUser}
     >
       <Routes>
-        <Route index          element={<DashboardHome user={user} />} />
+        <Route index           element={<DashboardHome user={user} />} />
         <Route path="campanas" element={<CampanasView user={user} />} />
-        <Route path="equipo"   element={<EquipoView user={user} />} />
-        <Route path="ranking"  element={<Navigate to="/dashboard/equipo" replace />} />
+        <Route path="ranking"  element={<RankingView user={user} />} />
+        {isOwner ? (
+          <Route path="equipo" element={<EquipoView user={user} />} />
+        ) : (
+          <Route path="equipo" element={<Navigate to="/dashboard" replace />} />
+        )}
         <Route path="links"    element={<LinksView />} />
         <Route path="crear"    element={<CrearCampanaForm user={user} />} />
         <Route path="*"        element={<Navigate to="/dashboard" replace />} />
@@ -73,10 +81,10 @@ export default function Dashboard({ user, onLogout, onUpdateUser }) {
 function DashboardHome({ user }) {
   const isOwner = user?.id_role === 2
 
-  const [campaigns, setCampaigns]           = useState([])
+  const [campaigns, setCampaigns] = useState([])
   const [loadingCampaigns, setLoadingCampaigns] = useState(true)
   const [selectedCampaign, setSelectedCampaign] = useState(null)
-  const [panelOpen, setPanelOpen]           = useState(false)
+  const [panelOpen, setPanelOpen] = useState(false)
 
   useEffect(() => {
     api.campaigns.getAll()
@@ -86,13 +94,13 @@ function DashboardHome({ user }) {
   }, [])
 
   // KPIs agregados calculados desde la lista de campañas (el backend ya filtra financieros para Manager)
-  const totalClics       = campaigns.reduce((s, c) => s + (c.clicks || c.clics || 0), 0)
+  const totalClics = campaigns.reduce((s, c) => s + (c.clicks || c.clics || 0), 0)
   const totalConversions = campaigns.reduce((s, c) => s + (c.conversions || c.conversiones || 0), 0)
-  const activeCampaigns  = campaigns.filter(c => c.status === 'active' || c.estado === 'activa').length
+  const activeCampaigns = campaigns.filter(c => c.status === 'active' || c.estado === 'activa').length
 
   // ROI promedio — solo presente si el backend lo devuelve (Owner únicamente)
   const roiValues = campaigns.map(c => c.roi).filter(v => v != null)
-  const avgRoi    = roiValues.length > 0
+  const avgRoi = roiValues.length > 0
     ? (roiValues.reduce((s, v) => s + v, 0) / roiValues.length).toFixed(1)
     : null
 
@@ -104,15 +112,15 @@ function DashboardHome({ user }) {
   // Tarjetas KPI — Owner ve ROI; Manager ve campañas activas en su lugar
   const kpiCards = isOwner
     ? [
-        { id: 'clics',     label: 'Clics totales',       value: totalClics.toLocaleString(),       delta: null },
-        { id: 'conv',      label: 'Conversiones totales', value: totalConversions.toLocaleString(), delta: null },
-        { id: 'roi',       label: 'ROI promedio',         value: avgRoi != null ? `${avgRoi}%` : '—', delta: null },
-      ]
+      { id: 'clics', label: 'Clics totales', value: totalClics.toLocaleString(), delta: null },
+      { id: 'conv', label: 'Conversiones totales', value: totalConversions.toLocaleString(), delta: null },
+      { id: 'roi', label: 'ROI promedio', value: avgRoi != null ? `${avgRoi}%` : '—', delta: null },
+    ]
     : [
-        { id: 'clics',    label: 'Clics totales',       value: totalClics.toLocaleString(),        delta: null },
-        { id: 'conv',     label: 'Conversiones totales', value: totalConversions.toLocaleString(), delta: null },
-        { id: 'activas',  label: 'Campañas activas',    value: activeCampaigns,                    delta: null },
-      ]
+      { id: 'clics', label: 'Clics totales', value: totalClics.toLocaleString(), delta: null },
+      { id: 'conv', label: 'Conversiones totales', value: totalConversions.toLocaleString(), delta: null },
+      { id: 'activas', label: 'Campañas activas', value: activeCampaigns, delta: null },
+    ]
 
   return (
     <>
@@ -146,7 +154,7 @@ function DashboardHome({ user }) {
 
             {loadingCampaigns ? (
               <div style={{ display: 'flex', gap: 10 }}>
-                {[1,2,3].map(i => (
+                {[1, 2, 3].map(i => (
                   <div key={i} className="skeleton" style={{ height: 38, width: 120, borderRadius: 999 }} />
                 ))}
               </div>
@@ -157,11 +165,11 @@ function DashboardHome({ user }) {
             ) : (
               <div className="campaign-chips">
                 {campaigns.map(c => {
-                  const name   = c.name || c.nombre || c.campaign_name || `Campaña ${c.id}`
+                  const name = c.name || c.nombre || c.campaign_name || `Campaña ${c.id}`
                   const status = c.status || c.estado || 'active'
                   const dotClass = status === 'active' || status === 'activa' ? 'active'
-                                 : status === 'paused' || status === 'pausada' ? 'paused'
-                                 : 'inactive'
+                    : status === 'paused' || status === 'pausada' ? 'paused'
+                      : 'inactive'
                   return (
                     <button
                       key={c.id}
@@ -178,13 +186,12 @@ function DashboardHome({ user }) {
             )}
           </div>
 
-          {/* Tarjeta grande — gráfico principal */}
-          <div className="card card-chart">
-            <div className="card-title">
-              {isOwner ? 'Rendimiento comparativo de campañas' : 'Clics y Conversiones en el tiempo'}
+          {/* Tarjeta grande — gráfico interactivo principal */}
+          <div className="card card-chart" style={{ padding: 20 }}>
+            <div className="card-title" style={{ marginBottom: 16 }}>
+              {isOwner ? 'Rendimiento Temporal y Métricas de Campaña' : 'Clics y Conversiones en el Tiempo'}
             </div>
-            {/* TODO: Integrar componente EDA real cuando esté disponible */}
-            <ChartPlaceholder isOwner={isOwner} campaigns={campaigns} />
+            <CampaignAnalyticsChart campaign={campaigns[0] || null} isOwner={isOwner} height={230} />
           </div>
         </div>
       </div>
@@ -205,55 +212,26 @@ function DashboardHome({ user }) {
   )
 }
 
-/* ── Gráfico placeholder ──────────────────────── */
-function ChartPlaceholder({ isOwner, campaigns }) {
-  // Alturas de barras simuladas para el placeholder visual
-  const bars = [60, 90, 45, 110, 75, 130, 55, 100, 80, 95, 65, 120]
-
-  return (
-    <div className="chart-placeholder">
-      <div className="chart-placeholder-bars">
-        {bars.map((h, i) => (
-          <div
-            key={i}
-            className="chart-bar"
-            style={{
-              height: `${h}px`,
-              opacity: 0.4 + (i % 3) * 0.2,
-              background: i % 2 === 0 ? 'var(--color-primary)' : 'var(--color-primary-light)',
-            }}
-          />
-        ))}
-      </div>
-      <p className="chart-placeholder-label">
-        {isOwner
-          ? 'Gráfico EDA de rendimiento comparativo — métricas acumuladas'
-          : 'Gráfico Clics/Conversiones — métricas acumuladas'}
-      </p>
-    </div>
-  )
-}
-
 /* ── Detalle de campaña en el panel ──────────── */
 function CampaignDetail({ campaign, isOwner }) {
-  const name        = campaign.name     || campaign.nombre        || '—'
-  const status      = campaign.status   || campaign.estado        || '—'
-  const clicks      = campaign.clicks   || campaign.clics         || 0
+  const name = campaign.name || campaign.nombre || '—'
+  const status = campaign.status || campaign.estado || '—'
+  const clicks = campaign.clicks || campaign.clics || 0
   const conversions = campaign.conversions || campaign.conversiones || 0
-  const startDate   = campaign.start_date  || campaign.fecha_inicio || '—'
-  const endDate     = campaign.end_date    || campaign.fecha_fin    || '—'
+  const startDate = campaign.start_date || campaign.fecha_inicio || '—'
+  const endDate = campaign.end_date || campaign.fecha_fin || '—'
 
   // Campos financieros — solo presentes si el backend los devolvió (Owner)
   // NO se ocultan con CSS; directamente no se renderizan si no existen en la respuesta
   const hasFinancials = campaign.revenue != null
-                     || campaign.roi     != null
-                     || campaign.roas    != null
-                     || campaign.cpc     != null
-                     || campaign.cpa     != null
+    || campaign.roi != null
+    || campaign.roas != null
+    || campaign.cpc != null
+    || campaign.cpa != null
 
-  const statusBadge = status === 'active' || status === 'activa'   ? 'badge-success'
-                    : status === 'paused' || status === 'pausada'   ? 'badge-warn'
-                    : 'badge-neutral'
+  const statusBadge = status === 'active' || status === 'activa' ? 'badge-success'
+    : status === 'paused' || status === 'pausada' ? 'badge-warn'
+      : 'badge-neutral'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -341,6 +319,17 @@ function CampaignDetail({ campaign, isOwner }) {
           </div>
         </>
       )}
+
+      {/* Gráfico individual de evolución de la campaña */}
+      <div style={{ marginTop: 12 }}>
+        <p style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+          Rendimiento temporal individual
+        </p>
+        <CampaignAnalyticsChart campaign={campaign} isOwner={isOwner} height={180} />
+      </div>
+
+      {/* Dashboard Predictivo de ROI a 7 Días con Machine Learning */}
+      <RoiPredictorCard campaign={campaign} isOwner={isOwner} />
     </div>
   )
 }
@@ -351,8 +340,8 @@ function CampaignDetail({ campaign, isOwner }) {
 function CampanasView({ user }) {
   const navigate = useNavigate()
   const [campaigns, setCampaigns] = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [selected, setSelected]   = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const isOwner = user?.id_role === 2
 
@@ -381,7 +370,7 @@ function CampanasView({ user }) {
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {loading ? (
             <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 48 }} />)}
+              {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 48 }} />)}
             </div>
           ) : (
             <table className="admin-table">
@@ -399,11 +388,11 @@ function CampanasView({ user }) {
                 {campaigns.length === 0 ? (
                   <tr><td colSpan={isOwner ? 6 : 5} style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 32 }}>Sin campañas</td></tr>
                 ) : campaigns.map(c => {
-                  const name   = c.name || c.nombre || `Campaña ${c.id}`
+                  const name = c.name || c.nombre || `Campaña ${c.id}`
                   const status = c.status || c.estado || '—'
                   const dotCls = status === 'active' || status === 'activa' ? 'badge-success'
-                               : status === 'paused' || status === 'pausada' ? 'badge-warn'
-                               : 'badge-neutral'
+                    : status === 'paused' || status === 'pausada' ? 'badge-warn'
+                      : 'badge-neutral'
                   return (
                     <tr key={c.id} onClick={() => { setSelected(c); setPanelOpen(true) }}>
                       <td style={{ fontWeight: 600 }}>{name}</td>
@@ -441,7 +430,7 @@ function CampanasView({ user }) {
    ══════════════════════════════════════════════════════════════ */
 function RankingView({ user }) {
   const [campaigns, setCampaigns] = useState([])
-  const [loading, setLoading]     = useState(true)
+  const [loading, setLoading] = useState(true)
   const isOwner = user?.id_role === 2
 
   useEffect(() => {
@@ -466,18 +455,18 @@ function RankingView({ user }) {
 
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {[1,2,3,4,5].map(i => <div key={i} className="skeleton" style={{ height: 56, borderRadius: 14 }} />)}
+          {[1, 2, 3, 4, 5].map(i => <div key={i} className="skeleton" style={{ height: 56, borderRadius: 14 }} />)}
         </div>
       ) : campaigns.length === 0 ? (
         <div className="card" style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 40 }}>
           Sin datos de ranking disponibles
         </div>
       ) : campaigns.map((c, idx) => {
-        const name   = c.name || c.nombre || `Campaña ${c.id}`
+        const name = c.name || c.nombre || `Campaña ${c.id}`
         const clicks = c.clicks || c.clics || 0
-        const conv   = c.conversions || c.conversiones || 0
+        const conv = c.conversions || c.conversiones || 0
         // roi solo presente si el backend lo devuelve (Owner)
-        const roi    = c.roi
+        const roi = c.roi
 
         return (
           <div
