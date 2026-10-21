@@ -32,9 +32,11 @@
 }
 
 .register-logo img {
-  height: 40px;
-  object-fit: contain;
+  width: 150px;
+  height: 150px;
+  margin-bottom: -20px;
 }
+
 
 .register-nav-actions {
   display: flex;
@@ -216,13 +218,13 @@
 }
 
 .register-title {
-  font-family: 'League Spartan', sans-serif;
-  font-size: 2.3rem;
-  font-weight: 800;
-  line-height: 1.15;
-  color: #111827;
-  letter-spacing: -0.02em;
-  margin-bottom: 1.8rem;
+ font-family: 'League Spartan', sans-serif;
+  font-size: 3rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #111;
+  margin: 0;
+  margin-bottom: 10px;
 }
 
 .register-form {
@@ -247,7 +249,7 @@
 .register-input {
   width: 100%;
   height: 44px;
-  background: #f0eef8; 
+  background: #f0eef8;
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 16px;
@@ -351,9 +353,11 @@
   .register-body {
     grid-template-columns: 1fr;
   }
+
   .register-deco {
     display: none;
   }
+
   .register-form-section {
     padding: 2.5rem 1.5rem;
   }
